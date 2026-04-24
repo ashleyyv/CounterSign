@@ -23,6 +23,7 @@ import { cn } from '@documenso/ui/lib/utils';
 import { Badge } from '@documenso/ui/primitives/badge';
 import { Button } from '@documenso/ui/primitives/button';
 
+import { ForwardingButtons } from '~/components/countersign/forwarding-buttons';
 import { EnvelopeDownloadDialog } from '~/components/dialogs/envelope-download-dialog';
 import { ClaimAccount } from '~/components/general/claim-account';
 import { DocumentSigningAuthPageView } from '~/components/general/document-signing/document-signing-auth-page';
@@ -242,6 +243,10 @@ export default function CompletedSigningPage({ loaderData }: Route.ComponentProp
                 </Trans>
               </p>
             ))}
+
+          <div className="mt-6">
+            <ForwardingButtons envelopeId={document.envelopeId} />
+          </div>
 
           <div className="mt-8 flex w-full max-w-xs flex-col items-stretch gap-4 md:w-auto md:max-w-none md:flex-row md:items-center">
             <DocumentShareButton

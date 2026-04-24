@@ -32,6 +32,7 @@ import { Button } from '@documenso/ui/primitives/button';
 import { Card, CardContent } from '@documenso/ui/primitives/card';
 import { ElementVisible } from '@documenso/ui/primitives/element-visible';
 
+import { IntelligencePanel } from '~/components/countersign/intelligence-panel';
 import { DocumentSigningAttachmentsPopover } from '~/components/general/document-signing/document-signing-attachments-popover';
 import { DocumentSigningAutoSign } from '~/components/general/document-signing/document-signing-auto-sign';
 import { DocumentSigningCheckboxField } from '~/components/general/document-signing/document-signing-checkbox-field';
@@ -390,6 +391,13 @@ export const DocumentSigningPageViewV1 = ({
                   fieldsValidated={fieldsValidated}
                   nextRecipient={nextRecipient}
                 />
+
+                <div className="mt-4">
+                  <IntelligencePanel
+                    envelopeId={document.envelopeId}
+                    recipientEmail={recipient.email}
+                  />
+                </div>
               </div>
             </div>
           </div>

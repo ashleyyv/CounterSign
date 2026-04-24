@@ -1,360 +1,177 @@
-# Documenso Architecture
+# Countersign Architecture
 
-This document provides a high-level overview of the Documenso codebase to help humans and agents understand how the application is structured.
+Built as an additive layer on Documenso. New files over modified files wherever possible.
 
-## Overview
+---
 
-Documenso is an open-source document signing platform built as a **monorepo** using npm workspaces and Turborepo. The application enables users to create, send, and sign documents electronically.
+## Guiding Constraints (from PRD)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Remix App (Hono Server)                        │
-│                                 apps/remix                                  │
-├─────────────┬─────────────┬─────────────┬─────────────┬─────────────────────┤
-│  /api/v1/*  │  /api/v2/*  │ /api/trpc/* │ /api/jobs/* │   React Router UI   │
-│  (ts-rest)  │   (tRPC)    │   (tRPC)    │  (Jobs API) │                     │
-├─────────────┴─────────────┴─────────────┴─────────────┴─────────────────────┤
-│                                                                             │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────┐    │
-│  │  @api   │  │  @trpc  │  │  @lib   │  │  @email │  │    @signing     │    │
-│  │ (REST)  │  │  (RPC)  │  │  (CORE) │  │         │  │                 │    │
-│  └─────────┘  └─────────┘  └────┬────┘  └─────────┘  └─────────────────┘    │
-│                                 │                                           │
-│              ┌──────────────────┼──────────────────┐                        │
-│              │                  │                  │                        │
-│         ┌────▼────┐       ┌─────▼─────┐      ┌─────▼─────┐                  │
-│         │ Storage │       │   Jobs    │      │    PDF    │                  │
-│         │Provider │       │  Provider │      │  Signing  │                  │
-│         └────┬────┘       └─────┬─────┘      └─────┬─────┘                  │
-│              │                  │                  │                        │
-└──────────────┼──────────────────┼──────────────────┼────────────────────────┘
-               │                  │                  │
-        ┌──────┴──────┐    ┌──────┴──────┐    ┌──────┴──────┐
-        │  Database   │    │   Inngest/  │    │ Google KMS/ │
-        │     S3      │    │    Local    │    │    Local    │
-        └─────────────┘    └─────────────┘    └─────────────┘
-```
+- New routes, new components, new models — don't mutate existing ones
+- Feature flags on anything that changes default behavior
+- Schema additions only — no renames or removals
+- Upstream-mergeable in principle
 
-## Monorepo Structure
+---
 
-### Applications (`apps/`)
+## New Prisma Models
 
-| Package                    | Description                                              | Port |
-| -------------------------- | -------------------------------------------------------- | ---- |
-| `@documenso/remix`         | Main application - React Router (Remix) with Hono server | 3000 |
-| `@documenso/documentation` | Documentation site (Next.js + Nextra)                    | 3002 |
-| `@documenso/openpage-api`  | Public analytics API                                     | 3003 |
+File: `packages/prisma/schema.prisma` (additions only)
 
-### Core Packages (`packages/`)
+```prisma
+model DocumentReview {
+  id           String   @id @default(cuid())
+  documentHash String   @unique
+  summary      Json
+  flaggedClauses Json
+  documentType String?
+  createdAt    DateTime @default(now())
+}
 
-| Package              | Description                                               |
-| -------------------- | --------------------------------------------------------- |
-| `@documenso/lib`     | Core business logic (server-only, client-only, universal) |
-| `@documenso/trpc`    | tRPC API layer with OpenAPI support (API V2)              |
-| `@documenso/api`     | REST API layer using ts-rest (API V1)                     |
-| `@documenso/prisma`  | Database layer (Prisma ORM + Kysely)                      |
-| `@documenso/ui`      | UI component library (Shadcn + Radix + Tailwind)          |
-| `@documenso/email`   | Email templates and mailer (React Email)                  |
-| `@documenso/auth`    | Authentication (OAuth via Arctic, WebAuthn/Passkeys)      |
-| `@documenso/signing` | PDF signing (Local P12, Google Cloud KMS)                 |
-| `@documenso/ee`      | Enterprise Edition features                               |
-| `@documenso/assets`  | Static assets                                             |
+model SignerPreferences {
+  id        String   @id @default(cuid())
+  userId    Int      @unique
+  targets   Json     // [{ label: string, email: string }], max 3
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+}
 
-### Supporting Packages
-
-| Package                      | Description               |
-| ---------------------------- | ------------------------- |
-| `@documenso/app-tests`       | E2E tests (Playwright)    |
-| `@documenso/eslint-config`   | Shared ESLint config      |
-| `@documenso/prettier-config` | Shared Prettier config    |
-| `@documenso/tailwind-config` | Shared Tailwind config    |
-| `@documenso/tsconfig`        | Shared TypeScript configs |
-
-## Tech Stack
-
-| Category | Technology                        |
-| -------- | --------------------------------- |
-| Frontend | React 18, React Router v7 (Remix) |
-| Server   | Hono                              |
-| Database | PostgreSQL 15, Prisma, Kysely     |
-| API      | tRPC, ts-rest, OpenAPI            |
-| Styling  | Tailwind CSS, Radix UI, Shadcn UI |
-| Auth     | Arctic (OAuth), WebAuthn/Passkeys |
-| Email    | React Email, Nodemailer           |
-| Jobs     | Inngest / Local                   |
-| Storage  | S3-compatible / Database          |
-| PDF      | @libpdf/core, pdfjs-dist          |
-| i18n     | Lingui                            |
-| Build    | Turborepo, Vite                   |
-| Testing  | Playwright                        |
-
-## API Architecture
-
-### API V1 (Deprecated)
-
-- **Location**: `packages/api/v1/`
-- **Framework**: ts-rest (contract-based REST)
-- **Mount**: `/api/v1/*`
-- **Auth**: API Token (Bearer header)
-- **Status**: Deprecated but maintained
-
-**Routes** (RESTful pattern):
-
-- `GET/POST/DELETE /api/v1/documents/*`
-- `GET/POST/DELETE /api/v1/templates/*`
-- Recipients and fields nested under documents
-
-### API V2 (Current)
-
-- **Location**: `packages/trpc/server/`
-- **Framework**: tRPC with trpc-to-openapi
-- **Mount**: `/api/v2/*`, `/api/v2-beta/*`
-- **Auth**: API Token or Session Cookie
-- **Status**: Active
-
-**Routes** (action-based pattern):
-
-- `GET/POST /api/v2/document/*` - Document operations
-- `GET/POST /api/v2/template/*` - Template operations
-- `GET/POST /api/v2/envelope/*` - Envelope operations (multi-document)
-- `GET/POST /api/v2/folder/*` - Folder management
-
-**Route Organization**:
-
-```
-packages/trpc/server/
-├── document-router/
-│   ├── get-document.ts
-│   ├── get-document.types.ts
-│   └── ...
-├── template-router/
-├── envelope-router/
-├── recipient-router/
-├── field-router/
-└── ...
+model ForwardEvent {
+  id          String   @id @default(cuid())
+  documentId  Int
+  senderId    Int
+  targetEmail String
+  sentAt      DateTime @default(now())
+  document    Document @relation(fields: [documentId], references: [id])
+  user        User     @relation(fields: [senderId], references: [id])
+}
 ```
 
-### Internal tRPC API
+---
 
-- **Mount**: `/api/trpc/*`
-- **Usage**: Frontend-to-backend communication
-- **Auth**: Session-based
+## New tRPC Router
 
-## Background Jobs
+**New file:** `packages/trpc/server/countersign-router/index.ts`
 
-Jobs handle async operations like email sending, document sealing, and webhooks.
+Procedures:
+- `getDocumentReview(documentHash)` — fetch or trigger AI analysis; returns cached result
+- `getSignerPreferences()` — return forwarding targets for authed user
+- `upsertSignerPreferences(targets)` — save up to 3 forwarding targets
+- `forwardDocument(documentId, targetEmail)` — send signed PDF via existing SMTP pipeline; write ForwardEvent
+- `getStalePendingDocuments()` — return documents pending >7 days for current user
 
-### Architecture
+Register in: `packages/trpc/server/router.ts` (single-line addition)
 
-```
-┌─────────────────┐     ┌───────────────────────────────────────┐
-│ triggerJob()    │────▶│         Job Provider                  │
-│                 │     │  ┌─────────────┬─────────────────┐    │
-│ - name          │     │  │   Inngest   │      Local      │    │
-│ - payload       │     │  │   (Cloud)   │   (Database)    │    │
-└─────────────────┘     │  └─────────────┴─────────────────┘    │
-                        │                │                      │
-                        │                ▼                      │
-                        │    ┌─────────────────────┐            │
-                        │    │  Job Handler        │            │
-                        │    │  (async processing) │            │
-                        │    └─────────────────────┘            │
-                        └───────────────────────────────────────┘
-```
+---
 
-### Location
+## New Routes
 
-- `packages/lib/jobs/client/` - Provider implementations
-- `packages/lib/jobs/definitions/` - Job definitions
+All new files. No existing routes modified structurally.
 
-### Job Types
+| Route file | Purpose |
+|---|---|
+| `apps/remix/app/routes/_recipient+/sign.$token+/intelligence-panel.tsx` | Server action: fetch AI review for document hash |
+| `apps/remix/app/routes/_authenticated+/settings.forwarding.tsx` | Forwarding targets settings page |
 
-**Email Jobs**:
+---
 
-- `send.signing.requested.email` - Signing invitation
-- `send-confirmation-email` - Email verification
-- `send-recipient-signed-email` - Notify on signature
-- `send-rejection-emails` - Rejection notifications
-- `send-document-cancelled-emails` - Cancellation notices
+## New Components
 
-**Internal Jobs**:
+All new files under `apps/remix/app/components/countersign/`:
 
-- `internal.seal-document` - Finalize signed documents
-- `internal.bulk-send-template` - Bulk document sending
-- `internal.execute-webhook` - External webhook calls
+| Component | Used by | Purpose |
+|---|---|---|
+| `IntelligencePanel.tsx` | signing page | Summary + flagged clauses + diff section |
+| `ForwardingButtons.tsx` | completion page | One-tap forward to configured targets |
+| `NudgeIndicator.tsx` | dashboard | Visual badge for docs pending >7 days |
+| `ForwardingSettings.tsx` | settings.forwarding route | Add/edit/delete forwarding targets |
+| `AIDisclaimer.tsx` | IntelligencePanel | "Not legal advice" notice |
 
-## Swappable Providers
+---
 
-The codebase uses a **strategy pattern** with `ts-pattern` for provider selection via environment variables.
+## AI Layer
 
-### Storage Provider
+**New file:** `packages/lib/server-only/countersign/ai-review.ts`
 
-Handles file uploads and downloads.
+- Calls Anthropic API (`claude-sonnet-4-6`) with structured JSON output
+- Input: document text, document type hint, optional prior document text
+- Output: `{ summary: string[], flaggedClauses: Clause[], diff?: DiffItem[] }`
+- Cached per `documentHash` in `DocumentReview` model
+- Panel hides gracefully if `ANTHROPIC_API_KEY` is not set
 
-| Provider | Description                          | Env Value  |
-| -------- | ------------------------------------ | ---------- |
-| Database | Store files as Base64 in DB          | `database` |
-| S3       | S3-compatible storage (+ CloudFront) | `s3`       |
+---
 
-**Config**: `NEXT_PUBLIC_UPLOAD_TRANSPORT`
+## Email
 
-**Location**: `packages/lib/universal/upload/`
+**New template:** `packages/email/templates/document-forwarded.tsx`
 
-### PDF Signing Provider
+Reuses existing `sendEmail()` infrastructure. No new SMTP config required.
 
-Cryptographically signs PDF documents.
+---
 
-| Provider         | Description          | Env Value    |
-| ---------------- | -------------------- | ------------ |
-| Local            | P12 certificate file | `local`      |
-| Google Cloud HSM | Google Cloud KMS     | `gcloud-hsm` |
+## Files That Need Minimal Modification
 
-**Config**: `NEXT_PRIVATE_SIGNING_TRANSPORT`
+These existing files get small, additive changes only:
 
-**Location**: `packages/signing/`
+| File | Change |
+|---|---|
+| `apps/remix/app/routes/_recipient+/sign.$token+/_index.tsx` | Mount `<IntelligencePanel>` alongside existing document viewer |
+| `apps/remix/app/routes/_recipient+/sign.$token+/complete.tsx` | Mount `<ForwardingButtons>` below existing completion UI |
+| `apps/remix/app/routes/_authenticated+/dashboard.tsx` | Mount `<NudgeIndicator>` on document rows with pending >7d |
+| `packages/trpc/server/router.ts` | Register `countersignRouter` |
+| `packages/prisma/schema.prisma` | Add 3 new models |
 
-### Email Provider
+---
 
-Sends transactional emails.
+## Files to Leave Untouched
 
-| Provider     | Description                    | Env Value      |
-| ------------ | ------------------------------ | -------------- |
-| SMTP Auth    | Standard SMTP with credentials | `smtp-auth`    |
-| SMTP API     | SMTP with API key              | `smtp-api`     |
-| Resend       | Resend API                     | `resend`       |
-| MailChannels | MailChannels API               | `mailchannels` |
+Do not touch auth, billing, teams, org, webhooks, templates, or any existing tRPC routers:
 
-**Config**: `NEXT_PRIVATE_SMTP_TRANSPORT`
+- `packages/trpc/server/auth-router/`
+- `packages/trpc/server/admin-router/`
+- `packages/trpc/server/team-router/`
+- `packages/trpc/server/organisation-router/`
+- `packages/trpc/server/webhook-router/`
+- `packages/trpc/server/template-router/`
+- `apps/remix/app/routes/_authenticated+/settings.*.tsx` (all except the new forwarding file)
+- `apps/remix/app/routes/_admin+/`
+- `packages/ee/` (enterprise edition)
+- `docker/`, `scripts/`, `apps/docs/`, `apps/openpage-api/`
+- All existing email templates
 
-**Location**: `packages/email/mailer.ts`
+---
 
-### Background Jobs Provider
+## Environment Variables
 
-Processes async jobs.
+| Var | Required | Purpose |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | No | Enables AI review panel; panel hidden if absent |
 
-| Provider | Description           | Env Value         |
-| -------- | --------------------- | ----------------- |
-| Local    | Database-backed queue | `local` (default) |
-| BullMQ   | Redis-backed queue    | `bullmq`          |
-| Inngest  | Managed cloud service | `inngest`         |
+No new infrastructure. Forwarding uses existing `SMTP_*` vars.
 
-**Config**: `NEXT_PRIVATE_JOBS_PROVIDER`
+---
 
-**Location**: `packages/lib/jobs/client/`
+## Feature Flags
 
-## Request Flow
+Wrap any behavior that changes Documenso defaults:
 
-### Web Application Request
-
-```
-Browser
-   │
-   ▼
-Hono Server (apps/remix/server/)
-   │
-   ├──▶ /api/v1/* ──▶ ts-rest handlers (packages/api/)
-   │
-   ├──▶ /api/v2/* ──▶ tRPC OpenAPI handlers (packages/trpc/)
-   │
-   ├──▶ /api/trpc/* ──▶ tRPC handlers (packages/trpc/)
-   │
-   ├──▶ /api/jobs/* ──▶ Job handlers (packages/lib/jobs/)
-   │
-   └──▶ /* ──▶ React Router (apps/remix/app/routes/)
-                    │
-                    ▼
-              React Components (packages/ui/)
+```ts
+const COUNTERSIGN_ENABLED = process.env.COUNTERSIGN_ENABLED !== 'false'
 ```
 
-### Document Signing Flow
+- Intelligence panel: on by default, hidden if no `ANTHROPIC_API_KEY`
+- Forwarding buttons: shown only if user has configured targets
+- Nudge indicators: always on (purely additive, no default behavior change)
 
-```
-1. Upload Document ──▶ Storage Provider (DB/S3)
-                                  │
-2. Add Recipients ────────────────┤
-                                  │
-3. Add Fields ────────────────────┤
-                                  │
-4. Send Document ─────────────────┤
-       │                          │
-       ▼                          │
-   Email Job ──▶ Email Provider   |
-       │                          |
-5. Recipient Signs ───────────────┤
-       │                          │
-       ▼                          │
-   seal-document Job              │
-       │                          │
-       ▼                          │
-   Signing Provider ◀─────────────┘
-       │
-       ▼
-   Signed PDF ──▶ Storage Provider
-```
+---
 
-## Key Directories
+## MVP Scope (P0 only)
 
-```
-documenso/
-├── apps/
-│   └── remix/
-│       ├── app/
-│       │   └── routes/           # React Router routes
-│       │       ├── _authenticated+/  # Protected routes
-│       │       ├── _unauthenticated+/  # Public routes
-│       │       └── _recipient+/  # Signing routes
-│       └── server/
-│           ├── router.ts         # Hono route mounting
-│           └── main.js           # Entry point
-├── packages/
-│   ├── api/v1/                   # API V1 (ts-rest)
-│   ├── trpc/server/              # API V2 + Internal (tRPC)
-│   ├── lib/
-│   │   ├── server-only/          # Server business logic
-│   │   ├── client-only/          # Client utilities
-│   │   ├── universal/            # Shared code
-│   │   └── jobs/                 # Background jobs
-│   ├── prisma/                   # Database schema & client
-│   ├── signing/                  # PDF signing
-│   ├── email/                    # Email templates
-│   └── ui/                       # Component library
-└── docker/                       # Docker configs
-```
-
-## Development
-
-```bash
-# Full setup (install, docker, migrate, seed, dev)
-npm run d
-
-# Start development server
-npm run dev
-
-# Database GUI
-npm run prisma:studio
-
-# Type checking (faster than build)
-npx tsc --noEmit
-
-# E2E tests
-npm run test:e2e
-```
-
-### Docker Services (Development)
-
-| Service         | Port       |
-| --------------- | ---------- |
-| PostgreSQL      | 54320      |
-| Inbucket (Mail) | 9000       |
-| MinIO (S3)      | 9001, 9002 |
-
-## Environment Variables Summary
-
-| Variable                         | Purpose          | Options                                           |
-| -------------------------------- | ---------------- | ------------------------------------------------- |
-| `NEXT_PUBLIC_UPLOAD_TRANSPORT`   | Storage provider | `database`, `s3`                                  |
-| `NEXT_PRIVATE_SIGNING_TRANSPORT` | Signing provider | `local`, `gcloud-hsm`                             |
-| `NEXT_PRIVATE_SMTP_TRANSPORT`    | Email provider   | `smtp-auth`, `smtp-api`, `resend`, `mailchannels` |
-| `NEXT_PRIVATE_JOBS_PROVIDER`     | Jobs provider    | `local`, `inngest`                                |
-
-See `.env.example` for the complete list of configuration options.
+| Use Case | Model | Procedure | Component | Touched existing file |
+|---|---|---|---|---|
+| UC1: Intelligence Panel | `DocumentReview` | `getDocumentReview` | `IntelligencePanel` | `sign.$token+/_index.tsx` |
+| UC1: Diff (conditional) | — | — | Inside `IntelligencePanel` | — |
+| UC2: Forwarding targets | `SignerPreferences` | `upsertSignerPreferences` | `ForwardingSettings` | — |
+| UC2: Forward after sign | `ForwardEvent` | `forwardDocument` | `ForwardingButtons` | `sign.$token+/complete.tsx` |
+| UC3: Stale nudges | — | `getStalePendingDocuments` | `NudgeIndicator` | `dashboard.tsx` |
+| UC4: Self-hoster | — | — | — | — (env var only) |

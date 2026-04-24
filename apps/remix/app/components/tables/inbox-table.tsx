@@ -23,6 +23,7 @@ import { Skeleton } from '@documenso/ui/primitives/skeleton';
 import { TableCell } from '@documenso/ui/primitives/table';
 import { useToast } from '@documenso/ui/primitives/use-toast';
 
+import { NudgeIndicator } from '~/components/countersign/nudge-indicator';
 import { DocumentStatus } from '~/components/general/document/document-status';
 import { useOptionalCurrentTeam } from '~/providers/team';
 
@@ -88,7 +89,12 @@ export const InboxTable = () => {
       {
         header: _(msg`Status`),
         accessorKey: 'status',
-        cell: ({ row }) => <DocumentStatus status={row.original.status} />,
+        cell: ({ row }) => (
+          <div className="flex flex-col gap-1">
+            <DocumentStatus status={row.original.status} />
+            <NudgeIndicator sentAt={row.original.createdAt} />
+          </div>
+        ),
         size: 140,
       },
       {
@@ -130,7 +136,7 @@ export const InboxTable = () => {
           enable: isLoadingError || false,
         }}
         emptyState={
-          <div className="text-muted-foreground/60 flex h-60 flex-col items-center justify-center gap-y-4">
+          <div className="flex h-60 flex-col items-center justify-center gap-y-4 text-muted-foreground/60">
             <p>
               <Trans>Documents that require your attention will appear here</Trans>
             </p>
@@ -170,8 +176,8 @@ export const InboxTable = () => {
       </DataTable>
 
       {isPending && (
-        <div className="bg-background/50 absolute inset-0 flex items-center justify-center">
-          <Loader className="text-muted-foreground h-8 w-8 animate-spin" />
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+          <Loader className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       )}
     </div>

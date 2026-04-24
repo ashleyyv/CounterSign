@@ -21,6 +21,7 @@ import { cn } from '@documenso/ui/lib/utils';
 import { Button } from '@documenso/ui/primitives/button';
 import { Separator } from '@documenso/ui/primitives/separator';
 
+import { IntelligencePanel } from '~/components/countersign/intelligence-panel';
 import { EnvelopeDownloadDialog } from '~/components/dialogs/envelope-download-dialog';
 import { SignFieldCheckboxDialog } from '~/components/dialogs/sign-field-checkbox-dialog';
 import { SignFieldDropdownDialog } from '~/components/dialogs/sign-field-dropdown-dialog';
@@ -229,6 +230,10 @@ export const DocumentSigningPageViewV2 = () => {
                 )}
               </div>
             )}
+
+            <div className="px-4 pb-4">
+              <IntelligencePanel envelopeId={envelope.id} recipientEmail={recipient.email} />
+            </div>
 
             <div className="embed--DocumentWidgetFooter mt-auto">
               {/* Footer of left sidebar. */}
