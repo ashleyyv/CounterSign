@@ -28,10 +28,61 @@ export type GetOrCreateDocumentReviewOptions = {
   priorDocumentText?: string;
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const jsonToStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((x): x is string => typeof x === 'string');
+};
+
+export const jsonToFlaggedClauses = (value: unknown): FlaggedClause[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: FlaggedClause[] = [];
+  for (const el of value) {
+    if (!isRecord(el)) {
+      continue;
+    }
+    const { clause, text, assessment, note } = el;
+    if (
+      typeof clause === 'string' &&
+      typeof text === 'string' &&
+      typeof assessment === 'string' &&
+      typeof note === 'string'
+    ) {
+      out.push({ clause, text, assessment, note });
+    }
+  }
+  return out;
+};
+
+const jsonToDiffItems = (value: unknown): DiffItem[] | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const out: DiffItem[] = [];
+  for (const el of value) {
+    if (!isRecord(el)) {
+      continue;
+    }
+    if (typeof el.clause === 'string' && typeof el.change === 'string') {
+      out.push({ clause: el.clause, change: el.change });
+    }
+  }
+  return out;
+};
+
 export const getOrCreateDocumentReview = async ({
   documentHash,
   documentText,
-  documentType,
+  documentType: documentTypeHint,
   priorDocumentText,
 }: GetOrCreateDocumentReviewOptions): Promise<DocumentReviewResult | null> => {
   try {
@@ -41,21 +92,22 @@ export const getOrCreateDocumentReview = async ({
 
     if (existing) {
       return {
-        summary: existing.summary as string[],
-        flaggedClauses: existing.flaggedClauses as FlaggedClause[],
+        summary: jsonToStringArray(existing.summary),
+        flaggedClauses: jsonToFlaggedClauses(existing.flaggedClauses),
         documentType: existing.documentType ?? null,
         diff: null,
       };
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim();
+    if (!anthropicApiKey) {
       return null;
     }
 
     let userPrompt = '';
 
-    if (documentType) {
-      userPrompt += `Document type hint: ${documentType}\n\n`;
+    if (documentTypeHint) {
+      userPrompt += `Document type hint: ${documentTypeHint}\n\n`;
     }
 
     userPrompt += `Document text:\n${documentText}`;
@@ -69,7 +121,7 @@ export const getOrCreateDocumentReview = async ({
       userPrompt += `\n\nSet "diff" to null — no prior document provided.`;
     }
 
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const client = new Anthropic({ apiKey: anthropicApiKey });
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
@@ -140,14 +192,31 @@ export const getOrCreateDocumentReview = async ({
       return null;
     }
 
-    const review = toolUse.input as DocumentReviewResult;
+    const input = toolUse.input;
+    if (!isRecord(input)) {
+      return null;
+    }
+
+    const summary = jsonToStringArray(input.summary);
+    const flaggedClauses = jsonToFlaggedClauses(input.flaggedClauses);
+    const dt = input.documentType;
+    const reviewDocumentType = dt === null || dt === undefined ? null : String(dt);
+    const diff =
+      input.diff === null || input.diff === undefined ? null : jsonToDiffItems(input.diff);
+
+    const review: DocumentReviewResult = {
+      summary,
+      flaggedClauses,
+      documentType: reviewDocumentType,
+      diff,
+    };
 
     await prisma.documentReview.create({
       data: {
         documentHash,
-        summary: review.summary,
-        flaggedClauses: review.flaggedClauses as object[],
-        documentType: review.documentType ?? undefined,
+        summary,
+        flaggedClauses,
+        documentType: reviewDocumentType ?? undefined,
       },
     });
 

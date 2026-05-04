@@ -4,14 +4,26 @@ import { getFileServerSide } from '@documenso/lib/universal/upload/get-file.serv
 import { prisma } from '@documenso/prisma';
 
 import type { DocumentReviewResult } from './ai-review';
-import { getOrCreateDocumentReview } from './ai-review';
+import { getOrCreateDocumentReview, jsonToFlaggedClauses, jsonToStringArray } from './ai-review';
 
 type PdfParseResult = { text: string };
 
 const parsePdf = async (buf: Buffer): Promise<PdfParseResult> => {
   const mod = await import('pdf-parse');
-  const fn = (mod.default ?? mod) as (buf: Buffer) => Promise<PdfParseResult>;
-  return fn(buf);
+  const candidate = mod.default ?? mod;
+  if (typeof candidate !== 'function') {
+    throw new Error('pdf-parse export is not a function');
+  }
+  const result: unknown = await candidate(buf);
+  if (
+    typeof result !== 'object' ||
+    result === null ||
+    !('text' in result) ||
+    typeof result.text !== 'string'
+  ) {
+    return { text: '' };
+  }
+  return { text: result.text };
 };
 
 export type AnalyzeEnvelopeOptions = {
@@ -56,8 +68,8 @@ export const analyzeEnvelope = async ({
   const cached = await prisma.documentReview.findUnique({ where: { documentHash } });
   if (cached) {
     return {
-      summary: cached.summary as string[],
-      flaggedClauses: cached.flaggedClauses as DocumentReviewResult['flaggedClauses'],
+      summary: jsonToStringArray(cached.summary),
+      flaggedClauses: jsonToFlaggedClauses(cached.flaggedClauses),
       documentType: cached.documentType ?? null,
       diff: null,
     };
@@ -116,7 +128,7 @@ export const analyzeEnvelope = async ({
 
   console.log(
     '[countersign] calling getOrCreateDocumentReview, apiKey set:',
-    !!process.env.ANTHROPIC_API_KEY,
+    !!process.env.ANTHROPIC_API_KEY?.trim(),
   );
   return getOrCreateDocumentReview({
     documentHash,

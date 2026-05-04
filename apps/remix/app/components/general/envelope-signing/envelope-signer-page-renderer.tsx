@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import { Trans, useLingui } from '@lingui/react/macro';
 import {
@@ -9,7 +9,7 @@ import {
   type Signature,
   SigningStatus,
 } from '@prisma/client';
-import type Konva from 'konva';
+import Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import { match } from 'ts-pattern';
 
@@ -34,6 +34,8 @@ import { EnvelopeRecipientFieldTooltip } from '@documenso/ui/components/document
 import { EnvelopeFieldToolTip } from '@documenso/ui/components/field/envelope-field-tooltip';
 import { useToast } from '@documenso/ui/primitives/use-toast';
 
+import { useOptionalClauseHighlight } from '~/components/countersign/clause-highlight-context';
+import { groupBoundsIntoLines } from '~/components/countersign/search-pdf-text';
 import { useEmbedSigningContext } from '~/components/embed/embed-signing-context';
 import { handleCheckboxFieldClick } from '~/utils/field-signing/checkbox-field';
 import { handleDropdownFieldClick } from '~/utils/field-signing/dropdown-field';
@@ -55,6 +57,8 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
   const { t, i18n } = useLingui();
   const { currentEnvelopeItem, setRenderError } = useCurrentEnvelopeRender();
   const { sessionData } = useOptionalSession();
+  const highlightCtx = useOptionalClauseHighlight();
+  const highlightLayerRef = useRef<Konva.Layer | null>(null);
 
   const { executeActionAuthProcedure } = useRequiredDocumentSigningAuthContext();
   const { toast } = useToast();
@@ -164,8 +168,14 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
     });
 
     const handleFieldGroupClick = (e: KonvaEventObject<Event>) => {
-      const currentTarget = e.currentTarget as Konva.Group;
-      const target = e.target as Konva.Shape;
+      if (!(e.currentTarget instanceof Konva.Group)) {
+        return;
+      }
+      if (!(e.target instanceof Konva.Shape)) {
+        return;
+      }
+      const currentTarget = e.currentTarget;
+      const target = e.target;
 
       const { width: fieldWidth, height: fieldHeight } = fieldGroup.getClientRect();
 
@@ -487,9 +497,60 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
   };
 
   /**
+   * Draws clause highlight rectangles on the dedicated highlight layer.
+   * Called on initial render and whenever the active highlight changes.
+   */
+  const renderHighlights = (layer?: Konva.Layer | null) => {
+    const targetLayer = layer ?? highlightLayerRef.current;
+    // Guard: skip if layer has been destroyed (stage unmounted)
+    if (!targetLayer || !targetLayer.getStage()) return;
+
+    targetLayer.destroyChildren();
+
+    const activeHighlight = highlightCtx?.activeHighlight;
+    if (!activeHighlight) {
+      targetLayer.batchDraw();
+      return;
+    }
+
+    const pageHighlight = activeHighlight.pages.find((p) => p.page === pageNumber);
+    if (!pageHighlight) {
+      targetLayer.batchDraw();
+      return;
+    }
+
+    const lines = groupBoundsIntoLines(pageHighlight.bounds);
+
+    for (const line of lines) {
+      targetLayer.add(
+        new Konva.Rect({
+          x: line.x,
+          y: line.y,
+          width: line.width,
+          height: line.height,
+          fill: 'rgba(250, 204, 21, 0.38)',
+          stroke: 'rgba(234, 179, 8, 0.5)',
+          strokeWidth: 0.5,
+          cornerRadius: 2,
+          listening: false,
+        }),
+      );
+    }
+
+    targetLayer.batchDraw();
+  };
+
+  /**
    * Initialize the Konva page canvas and all fields and interactions.
    */
   const createPageCanvas = (currentStage: Konva.Stage, currentPageLayer: Konva.Layer) => {
+    // Highlight layer sits behind the field layer
+    const hl = new Konva.Layer();
+    currentStage.add(hl);
+    hl.moveToBottom();
+    highlightLayerRef.current = hl;
+    renderHighlights(hl);
+
     renderFields();
     currentPageLayer.batchDraw();
   };
@@ -522,6 +583,13 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
 
     pageLayer.current.batchDraw();
   }, [selectedAssistantRecipient]);
+
+  /**
+   * Re-draw clause highlights when the active highlight changes.
+   */
+  useEffect(() => {
+    renderHighlights();
+  }, [highlightCtx?.activeHighlight, pageNumber]);
 
   if (!currentEnvelopeItem) {
     return null;
