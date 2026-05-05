@@ -7,7 +7,11 @@ import type { FlaggedClauseV2 } from '@documenso/lib/types/countersign';
 import { trpc } from '@documenso/trpc/react';
 import { cn } from '@documenso/ui/lib/utils';
 import { Button } from '@documenso/ui/primitives/button';
-import { Separator } from '@documenso/ui/primitives/separator';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@documenso/ui/primitives/collapsible';
 import { useToast } from '@documenso/ui/primitives/use-toast';
 
 import { AIDisclaimer } from './ai-disclaimer';
@@ -18,6 +22,14 @@ const EXPANDED_KEY = 'countersign:panel:expanded';
 const analyzedKey = (id: string) => `countersign:analyzed:${id}`;
 
 const SEVERITY_ORDER = { severe: 0, notable: 1, 'worth-reading': 2 } as const;
+
+const SEVERITY_KEYS = ['severe', 'notable', 'worth-reading'] as const;
+
+const severitySectionLabel: Record<(typeof SEVERITY_KEYS)[number], string> = {
+  severe: 'Serious — review carefully',
+  notable: 'Notable',
+  'worth-reading': 'Worth reading',
+};
 
 const severityConfig = {
   severe: {
@@ -94,7 +106,16 @@ export const IntelligencePanel = ({
     }
   });
 
-  const [summaryExpanded, setSummaryExpanded] = useState(true);
+  const [summaryOpen, setSummaryOpen] = useState(true);
+  const [overviewOpen, setOverviewOpen] = useState(true);
+  const [clausesSectionOpen, setClausesSectionOpen] = useState(true);
+  const [severitySectionOpen, setSeveritySectionOpen] = useState<
+    Record<(typeof SEVERITY_KEYS)[number], boolean>
+  >({
+    severe: true,
+    notable: false,
+    'worth-reading': false,
+  });
   const summaryInitializedRef = useRef(false);
 
   const [navigatingClause, setNavigatingClause] = useState<string | null>(null);
@@ -145,7 +166,7 @@ export const IntelligencePanel = ({
   useEffect(() => {
     if (!review || summaryInitializedRef.current) return;
     summaryInitializedRef.current = true;
-    setSummaryExpanded(review.riskVerdict.level !== 'high');
+    setSummaryOpen(review.riskVerdict.level !== 'high');
   }, [review]);
 
   const sortedClauses = useMemo(
@@ -155,6 +176,18 @@ export const IntelligencePanel = ({
       ),
     [review?.flaggedClauses],
   );
+
+  const clausesBySeverity = useMemo(() => {
+    const groups: Record<(typeof SEVERITY_KEYS)[number], FlaggedClauseV2[]> = {
+      severe: [],
+      notable: [],
+      'worth-reading': [],
+    };
+    for (const c of sortedClauses) {
+      groups[c.severity].push(c);
+    }
+    return groups;
+  }, [sortedClauses]);
 
   const canNavigate = !!pdfData;
 
@@ -300,163 +333,212 @@ export const IntelligencePanel = ({
             </p>
           )}
 
-          {/* Results */}
+          {/* Results — nested collapsibles: overview, summary, clauses by severity */}
           {analyzed && !isLoading && !isError && review && (
-            <div className="flex flex-col gap-4">
-              {/* Document info */}
-              <div>
-                <p className="text-sm font-bold leading-tight text-foreground">
-                  {review.document.counterparty}
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {review.document.documentType}
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {review.document.sectionCount} sections · {review.document.estimatedReadMinutes}{' '}
-                  min read
-                </p>
-              </div>
-
-              {/* Risk verdict */}
-              <div
-                className={cn(
-                  'flex items-start gap-2.5 rounded-r border-l-4 py-2 pl-3 pr-2',
-                  riskConfig[review.riskVerdict.level].leftBar,
-                  riskConfig[review.riskVerdict.level].bg,
-                )}
-              >
-                <span
-                  className={cn(
-                    'mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
-                    riskConfig[review.riskVerdict.level].pill,
-                  )}
+            <div className="flex flex-col gap-2">
+              <Collapsible open={overviewOpen} onOpenChange={setOverviewOpen}>
+                <CollapsibleTrigger
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
-                  {review.riskVerdict.level}
-                </span>
-                <span className="text-sm text-foreground">{review.riskVerdict.headline}</span>
-              </div>
-
-              <Separator />
-
-              {/* Summary (collapsible) */}
-              <div>
-                <button
-                  onClick={() => setSummaryExpanded((v) => !v)}
-                  className="flex w-full items-center justify-between text-left"
-                >
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Summary
-                  </p>
-                  {summaryExpanded ? (
-                    <ChevronUpIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Overview &amp; risk
+                  </span>
+                  {overviewOpen ? (
+                    <ChevronUpIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                   ) : (
-                    <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                    <ChevronDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                   )}
-                </button>
-                {summaryExpanded && (
-                  <ul className="mt-2 flex flex-col gap-1">
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-3 data-[state=closed]:animate-none">
+                  <ul className="list-disc space-y-1.5 pl-5 text-sm text-foreground marker:text-muted-foreground">
+                    <li>
+                      <span className="font-semibold">{review.document.counterparty}</span>
+                    </li>
+                    <li>{review.document.documentType}</li>
+                    <li>
+                      {review.document.sectionCount} sections ·{' '}
+                      {review.document.estimatedReadMinutes} min read
+                    </li>
+                  </ul>
+                  <div
+                    className={cn(
+                      'mt-3 flex items-start gap-2.5 rounded-md border-l-4 py-2 pl-3 pr-2',
+                      riskConfig[review.riskVerdict.level].leftBar,
+                      riskConfig[review.riskVerdict.level].bg,
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold',
+                        riskConfig[review.riskVerdict.level].pill,
+                      )}
+                    >
+                      {review.riskVerdict.level}
+                    </span>
+                    <ul className="list-disc pl-4 text-sm text-foreground marker:text-muted-foreground">
+                      <li>{review.riskVerdict.headline}</li>
+                    </ul>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+
+              <Collapsible open={summaryOpen} onOpenChange={setSummaryOpen}>
+                <CollapsibleTrigger
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                >
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Summary
+                  </span>
+                  {summaryOpen ? (
+                    <ChevronUpIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-3">
+                  <ul className="list-disc space-y-2 pl-5 text-sm text-foreground marker:text-muted-foreground">
                     {review.summary.map((point, i) => (
-                      <li key={i} className="flex gap-2 text-sm">
-                        <span className="mt-0.5 shrink-0 text-muted-foreground">•</span>
-                        <span>{point}</span>
-                      </li>
+                      <li key={i}>{point}</li>
                     ))}
                   </ul>
-                )}
-              </div>
+                </CollapsibleContent>
+              </Collapsible>
 
-              <Separator />
-
-              {/* Flagged clauses */}
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Flagged Clauses
-                </p>
-                {sortedClauses.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No clauses flagged.</p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {sortedClauses.map((clause) => {
-                      const cfg = severityConfig[clause.severity];
-                      const isNavigating = navigatingClause === clause.id;
-                      return (
-                        <button
-                          key={clause.id}
-                          type="button"
-                          disabled={!canNavigate || isNavigating}
-                          onClick={async () => {
-                            await handleClauseClick(clause);
-                          }}
-                          className={cn(
-                            'group w-full rounded border p-3 text-left transition-colors',
-                            cfg.border,
-                            canNavigate ? cn('cursor-pointer', cfg.hover) : 'cursor-default',
-                          )}
-                        >
-                          {/* Card header row */}
-                          <div className="mb-2 flex items-center justify-between gap-2">
-                            <span
+              <Collapsible open={clausesSectionOpen} onOpenChange={setClausesSectionOpen}>
+                <CollapsibleTrigger
+                  type="button"
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-border/70 bg-muted/25 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                >
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Flagged clauses ({sortedClauses.length})
+                  </span>
+                  {clausesSectionOpen ? (
+                    <ChevronUpIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-2">
+                  {sortedClauses.length === 0 ? (
+                    <p className="py-1 text-xs text-muted-foreground">No clauses flagged.</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {SEVERITY_KEYS.map((sev) => {
+                        const list = clausesBySeverity[sev];
+                        if (list.length === 0) {
+                          return null;
+                        }
+                        return (
+                          <Collapsible
+                            key={sev}
+                            open={severitySectionOpen[sev]}
+                            onOpenChange={(open) =>
+                              setSeveritySectionOpen((prev) => ({ ...prev, [sev]: open }))
+                            }
+                          >
+                            <CollapsibleTrigger
+                              type="button"
                               className={cn(
-                                'rounded-full px-2 py-0.5 text-xs font-semibold',
-                                cfg.pill,
+                                'flex w-full min-w-0 items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left text-xs font-semibold transition-colors',
+                                severityConfig[sev].border,
+                                'bg-card hover:bg-muted/30',
                               )}
                             >
-                              {clause.severity}
-                            </span>
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {clause.sectionReference}
-                            </span>
-                          </div>
+                              <span className="min-w-0 flex-1 text-foreground">
+                                {severitySectionLabel[sev]}
+                              </span>
+                              <span className="flex shrink-0 items-center gap-1.5 tabular-nums text-muted-foreground">
+                                {list.length} {list.length === 1 ? 'clause' : 'clauses'}
+                                {severitySectionOpen[sev] ? (
+                                  <ChevronUpIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                                ) : (
+                                  <ChevronDownIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                                )}
+                              </span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="pl-0 pt-2">
+                              <div className="flex flex-col gap-2">
+                                {list.map((clause) => {
+                                  const cfg = severityConfig[clause.severity];
+                                  const isNavigating = navigatingClause === clause.id;
+                                  return (
+                                    <button
+                                      key={clause.id}
+                                      type="button"
+                                      disabled={!canNavigate || isNavigating}
+                                      onClick={async () => {
+                                        await handleClauseClick(clause);
+                                      }}
+                                      className={cn(
+                                        'group w-full rounded border p-2.5 text-left transition-colors',
+                                        cfg.border,
+                                        canNavigate
+                                          ? cn('cursor-pointer', cfg.hover)
+                                          : 'cursor-default',
+                                      )}
+                                    >
+                                      <p className="text-sm font-semibold leading-snug text-foreground">
+                                        {clause.title}
+                                      </p>
+                                      <p className="mt-0.5 text-[0.65rem] text-muted-foreground">
+                                        {clause.sectionReference}
+                                      </p>
+                                      <ul className="mt-2 list-disc space-y-1.5 pl-4 text-left text-sm marker:text-muted-foreground">
+                                        <li>
+                                          <span className="font-medium text-foreground">
+                                            Says:{' '}
+                                          </span>
+                                          <span className="text-muted-foreground">
+                                            {clause.whatItSays}
+                                          </span>
+                                        </li>
+                                        <li>
+                                          <span className="font-medium text-foreground">
+                                            Means for you:{' '}
+                                          </span>
+                                          <span className="text-muted-foreground">
+                                            {clause.whatItMeansForYou}
+                                          </span>
+                                        </li>
+                                      </ul>
+                                      {canNavigate && (
+                                        <p
+                                          className={cn(
+                                            'mt-2 text-xs font-medium transition-opacity',
+                                            cfg.jumpLink,
+                                            isNavigating
+                                              ? 'opacity-100'
+                                              : 'opacity-0 group-hover:opacity-100',
+                                          )}
+                                        >
+                                          {isNavigating ? (
+                                            <span className="flex items-center gap-1">
+                                              <Loader2Icon className="h-3 w-3 animate-spin" />
+                                              Locating…
+                                            </span>
+                                          ) : (
+                                            '↗ Show in document'
+                                          )}
+                                        </p>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </CollapsibleContent>
+                          </Collapsible>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
 
-                          {/* Title */}
-                          <p className="mb-2 text-sm font-semibold text-foreground">
-                            {clause.title}
-                          </p>
-
-                          {/* What it says */}
-                          <p className="mb-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                            What it says
-                          </p>
-                          <p className="mb-2 text-sm text-foreground">{clause.whatItSays}</p>
-
-                          {/* What it means */}
-                          <p className="mb-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                            What it means for you
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {clause.whatItMeansForYou}
-                          </p>
-
-                          {/* Jump link */}
-                          {canNavigate && (
-                            <p
-                              className={cn(
-                                'mt-2 text-xs font-medium transition-opacity',
-                                cfg.jumpLink,
-                                isNavigating ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                              )}
-                            >
-                              {isNavigating ? (
-                                <span className="flex items-center gap-1">
-                                  <Loader2Icon className="h-3 w-3 animate-spin" />
-                                  Locating…
-                                </span>
-                              ) : (
-                                '↗ Show in document'
-                              )}
-                            </p>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+              <div className="pt-1">
+                <AIDisclaimer />
               </div>
-
-              <Separator />
-
-              {/* Disclaimer at bottom */}
-              <AIDisclaimer />
             </div>
           )}
         </div>
