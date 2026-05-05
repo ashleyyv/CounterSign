@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import { msg } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
@@ -42,6 +42,7 @@ export const DocumentSigningNameField = ({
   onSignField,
   onUnsignField,
 }: DocumentSigningNameFieldProps) => {
+  const signAsFullNameInputId = useId();
   const { _ } = useLingui();
   const { toast } = useToast();
   const { revalidate } = useRevalidator();
@@ -195,11 +196,12 @@ export const DocumentSigningNameField = ({
           </DialogTitle>
 
           <div>
-            <Label htmlFor="signature">
+            <Label htmlFor={signAsFullNameInputId}>
               <Trans>Full Name</Trans>
             </Label>
 
             <Input
+              id={signAsFullNameInputId}
               type="text"
               className="mt-2"
               value={localFullName}

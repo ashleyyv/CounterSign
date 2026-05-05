@@ -496,13 +496,25 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
     }
   };
 
+  const getSeverityHighlightColor = (severity?: string): { fill: string; stroke: string } => {
+    switch (severity) {
+      case 'severe':
+        return { fill: 'rgba(239, 68, 68, 0.20)', stroke: 'rgba(220, 38, 38, 0.40)' };
+      case 'notable':
+        return { fill: 'rgba(245, 158, 11, 0.20)', stroke: 'rgba(217, 119, 6, 0.40)' };
+      case 'worth-reading':
+        return { fill: 'rgba(59, 130, 246, 0.20)', stroke: 'rgba(37, 99, 235, 0.40)' };
+      default:
+        return { fill: 'rgba(250, 204, 21, 0.38)', stroke: 'rgba(234, 179, 8, 0.5)' };
+    }
+  };
+
   /**
    * Draws clause highlight rectangles on the dedicated highlight layer.
    * Called on initial render and whenever the active highlight changes.
    */
   const renderHighlights = (layer?: Konva.Layer | null) => {
     const targetLayer = layer ?? highlightLayerRef.current;
-    // Guard: skip if layer has been destroyed (stage unmounted)
     if (!targetLayer || !targetLayer.getStage()) return;
 
     targetLayer.destroyChildren();
@@ -519,6 +531,7 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
       return;
     }
 
+    const { fill, stroke } = getSeverityHighlightColor(activeHighlight.severity);
     const lines = groupBoundsIntoLines(pageHighlight.bounds);
 
     for (const line of lines) {
@@ -528,8 +541,8 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
           y: line.y,
           width: line.width,
           height: line.height,
-          fill: 'rgba(250, 204, 21, 0.38)',
-          stroke: 'rgba(234, 179, 8, 0.5)',
+          fill,
+          stroke,
           strokeWidth: 0.5,
           cornerRadius: 2,
           listening: false,
@@ -586,8 +599,30 @@ export const EnvelopeSignerPageRenderer = ({ pageData }: { pageData: PageRenderD
 
   /**
    * Re-draw clause highlights when the active highlight changes.
+   * When transitioning to null, fade existing rects out before destroying them.
    */
   useEffect(() => {
+    if (!highlightCtx?.activeHighlight) {
+      const layer = highlightLayerRef.current;
+      if (!layer || !layer.getStage()) return;
+      const nodes = layer.children ? [...layer.children] : [];
+      if (nodes.length === 0) return;
+      let done = 0;
+      nodes.forEach((node) => {
+        (node as Konva.Rect).to({
+          opacity: 0,
+          duration: 0.5,
+          onFinish: () => {
+            done += 1;
+            if (done === nodes.length) {
+              layer.destroyChildren();
+              layer.batchDraw();
+            }
+          },
+        });
+      });
+      return;
+    }
     renderHighlights();
   }, [highlightCtx?.activeHighlight, pageNumber]);
 

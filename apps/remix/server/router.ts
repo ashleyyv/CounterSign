@@ -28,6 +28,7 @@ import { aiRoute } from './api/ai/route';
 import { downloadRoute } from './api/download/download';
 import { filesRoute } from './api/files/files';
 import { type AppContext, appContext } from './context';
+import './env-bootstrap';
 import { appMiddleware } from './middleware';
 import { openApiTrpcServerHandler } from './trpc/hono-trpc-open-api';
 import { reactRouterTrpcServer } from './trpc/hono-trpc-remix';
@@ -75,6 +76,17 @@ app.use(async (c, next) => {
 
   await next();
 });
+
+/**
+ * Stale PWA/service-worker registrations may still request this URL. There is no RR route for it,
+ * which otherwise surfaces as "No route matches URL /service-worker.js" in dev.
+ */
+app.get('/service-worker.js', (c) =>
+  c.text('// Documenso: no service worker in this build\n', 200, {
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Cache-Control': 'no-store',
+  }),
+);
 
 // Apply cors and rate limits to API routes.
 app.use(`/api/v1/*`, cors());

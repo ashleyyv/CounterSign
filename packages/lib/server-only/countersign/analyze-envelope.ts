@@ -1,10 +1,11 @@
 import crypto from 'crypto';
 
 import { getFileServerSide } from '@documenso/lib/universal/upload/get-file.server';
+import { env } from '@documenso/lib/utils/env';
 import { prisma } from '@documenso/prisma';
 
-import type { DocumentReviewResult } from './ai-review';
-import { getOrCreateDocumentReview, jsonToFlaggedClauses, jsonToStringArray } from './ai-review';
+import type { DocumentReviewResultV2 } from './ai-review';
+import { jsonToDocumentReviewV2, jsonToStringArray, runDocumentReviewV2 } from './ai-review';
 
 type PdfParseResult = { text: string };
 
@@ -26,6 +27,15 @@ const parsePdf = async (buf: Buffer): Promise<PdfParseResult> => {
   return { text: result.text };
 };
 
+export type AnalyzeEnvelopeUnavailableReason =
+  | 'no_api_key'
+  | 'envelope_not_found'
+  | 'analysis_failed';
+
+export type AnalyzeEnvelopeResult =
+  | { status: 'ok'; data: DocumentReviewResultV2 }
+  | { status: 'unavailable'; reason: AnalyzeEnvelopeUnavailableReason };
+
 export type AnalyzeEnvelopeOptions = {
   envelopeId: string;
   recipientEmail?: string;
@@ -34,7 +44,19 @@ export type AnalyzeEnvelopeOptions = {
 export const analyzeEnvelope = async ({
   envelopeId,
   recipientEmail,
-}: AnalyzeEnvelopeOptions): Promise<DocumentReviewResult | null> => {
+}: AnalyzeEnvelopeOptions): Promise<AnalyzeEnvelopeResult> => {
+  try {
+    return await analyzeEnvelopeInner({ envelopeId, recipientEmail });
+  } catch (err) {
+    console.error('[countersign] analyzeEnvelope error:', err);
+    return { status: 'unavailable', reason: 'analysis_failed' };
+  }
+};
+
+const analyzeEnvelopeInner = async ({
+  envelopeId,
+  recipientEmail,
+}: AnalyzeEnvelopeOptions): Promise<AnalyzeEnvelopeResult> => {
   console.log('[countersign] analyzeEnvelope called', { envelopeId, recipientEmail });
 
   const envelope = await prisma.envelope.findUnique({
@@ -55,27 +77,38 @@ export const analyzeEnvelope = async ({
   );
 
   if (!envelope || envelope.envelopeItems.length === 0) {
-    console.log('[countersign] returning null — no envelope or no items');
-    return null;
+    return { status: 'unavailable', reason: 'envelope_not_found' };
   }
 
   const item = envelope.envelopeItems[0];
   const pdfBytes = await getFileServerSide(item.documentData);
-
   const documentHash = crypto.createHash('sha256').update(Buffer.from(pdfBytes)).digest('hex');
 
-  // Return cached result immediately if available
+  // Prefer V2 rawReview cache; bypass if absent or missing flaggedClauses
   const cached = await prisma.documentReview.findUnique({ where: { documentHash } });
-  if (cached) {
-    return {
-      summary: jsonToStringArray(cached.summary),
-      flaggedClauses: jsonToFlaggedClauses(cached.flaggedClauses),
-      documentType: cached.documentType ?? null,
-      diff: null,
-    };
+  if (cached?.rawReview) {
+    const v2 = jsonToDocumentReviewV2(cached.rawReview);
+    if (v2 && v2.flaggedClauses.length > 0) {
+      console.log(
+        '[countersign] analyzeEnvelope: rawReview cache hit — flaggedClauses:',
+        v2.flaggedClauses.length,
+      );
+      return { status: 'ok', data: v2 };
+    }
+    console.log('[countersign] analyzeEnvelope: rawReview present but unusable — re-analyzing');
+  } else if (cached) {
+    console.log(
+      '[countersign] analyzeEnvelope: legacy cache (no rawReview) — re-analyzing with V2',
+      'legacy summary items:',
+      jsonToStringArray(cached.summary).length,
+    );
   }
 
-  // Extract text from PDF
+  const apiKey = env('ANTHROPIC_API_KEY')?.trim();
+  if (!apiKey) {
+    return { status: 'unavailable', reason: 'no_api_key' };
+  }
+
   let documentText = envelope.title;
   try {
     const parsed = await parsePdf(Buffer.from(pdfBytes));
@@ -83,10 +116,9 @@ export const analyzeEnvelope = async ({
       documentText = parsed.text;
     }
   } catch {
-    // fall back to envelope title as document text hint
+    // fall back to envelope title
   }
 
-  // Look for a prior signed document from the same counterparty if recipientEmail provided
   let priorDocumentText: string | undefined;
   if (recipientEmail) {
     const priorRecipient = await prisma.recipient.findFirst({
@@ -121,18 +153,17 @@ export const analyzeEnvelope = async ({
           priorDocumentText = priorParsed.text;
         }
       } catch {
-        // no prior text available
+        // no prior text
       }
     }
   }
 
-  console.log(
-    '[countersign] calling getOrCreateDocumentReview, apiKey set:',
-    !!process.env.ANTHROPIC_API_KEY?.trim(),
-  );
-  return getOrCreateDocumentReview({
-    documentHash,
-    documentText,
-    priorDocumentText,
-  });
+  console.log('[countersign] analyzeEnvelope: running V2 analysis');
+
+  const review = await runDocumentReviewV2({ documentHash, documentText, priorDocumentText });
+  if (!review) {
+    return { status: 'unavailable', reason: 'analysis_failed' };
+  }
+
+  return { status: 'ok', data: review };
 };

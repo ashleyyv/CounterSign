@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 import { Plural, Trans } from '@lingui/react/macro';
 import { EnvelopeType, RecipientRole } from '@prisma/client';
 import { BanIcon, DownloadCloudIcon } from 'lucide-react';
@@ -101,6 +103,20 @@ const MobileDropdownMenu = () => {
   const { envelope, recipient } = useRequiredEnvelopeSigningContext();
 
   const { allowDocumentRejection } = useEmbedSigningContext() || {};
+
+  /** Radix DropdownMenu uses useId(); SSR + client ids differ and break hydration. */
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (!isClient) {
+    return (
+      <Button variant="outline" size="sm" type="button" disabled className="opacity-80">
+        <Trans>Actions</Trans>
+      </Button>
+    );
+  }
 
   return (
     <DropdownMenu>

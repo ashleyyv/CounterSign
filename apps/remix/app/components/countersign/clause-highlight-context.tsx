@@ -15,6 +15,7 @@ export type PageHighlight = {
 export type ClauseHighlight = {
   clauseText: string;
   pages: PageHighlight[];
+  severity?: 'severe' | 'notable' | 'worth-reading';
 };
 
 type ClauseHighlightContextValue = {

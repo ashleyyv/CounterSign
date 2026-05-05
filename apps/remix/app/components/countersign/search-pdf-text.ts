@@ -130,6 +130,142 @@ export const searchPdfText = async (
   return results;
 };
 
+const matchesSectionStart = (windowNorm: string, sectionNumber: number): boolean => {
+  const re = new RegExp(`\\b(?:section|§|article)\\s*[:.]?\\s*${sectionNumber}\\b`, 'i');
+  return re.test(windowNorm);
+};
+
+/** Next numbered Section / § / Article heading whose main number differs from the active section. */
+const matchesDifferentSectionHeading = (windowNorm: string, sectionNumber: number): boolean => {
+  const re = /\b(?:section|§|article)\s*[:.]?\s*(\d+)/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(windowNorm)) !== null) {
+    const num = Number(match[1]);
+    if (!Number.isNaN(num) && num !== sectionNumber) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Section-anchored search: from the first heading for `sectionNumber`, capture bounds until the next
+ * numbered section/article heading. Returns [] if no heading match (caller should fall back to verbatim).
+ */
+export const searchPdfBySectionNumber = async (
+  pdfData: Uint8Array | string,
+  sectionNumber: number,
+): Promise<PageHighlight[]> => {
+  if (sectionNumber <= 0) {
+    return [];
+  }
+
+  const pdfjsLib = await import('pdfjs-dist');
+
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    try {
+      const w = await import('pdfjs-dist/build/pdf.worker?url');
+      const workerSrc =
+        typeof w === 'string' ? w : isRecord(w) && typeof w.default === 'string' ? w.default : '';
+      if (workerSrc) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
+      }
+    } catch {
+      // Worker already configured elsewhere
+    }
+  }
+
+  let bytes: Uint8Array;
+  if (typeof pdfData === 'string') {
+    const resp = await fetch(pdfData);
+    bytes = new Uint8Array(await resp.arrayBuffer());
+  } else {
+    bytes = pdfData;
+  }
+
+  const pdf = await pdfjsLib.getDocument({ data: bytes, cMapUrl: '/static/cmaps/' }).promise;
+
+  const boundsByPage = new Map<number, TextBound[]>();
+  let capturing = false;
+  let seenAnyCapture = false;
+
+  const pushBound = (pageNum: number, viewport: { height: number }, item: RawTextItem) => {
+    const x = item.transform[4];
+    const pdfY = item.transform[5];
+    const h = item.height || Math.abs(item.transform[3] ?? 10) || 10;
+    const bound: TextBound = {
+      x,
+      y: viewport.height - pdfY - h,
+      width: item.width || 60,
+      height: h,
+    };
+    const list = boundsByPage.get(pageNum);
+    if (list) {
+      list.push(bound);
+    } else {
+      boundsByPage.set(pageNum, [bound]);
+    }
+    seenAnyCapture = true;
+  };
+
+  outer: for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+
+    const items: RawTextItem[] = content.items
+      .filter((it): it is RawTextItem & { str: string } => 'str' in it && !!String(it.str).trim())
+      .map((it) => {
+        const t = Array.isArray(it.transform)
+          ? it.transform.filter((n): n is number => typeof n === 'number')
+          : [];
+        const defaults = [1, 0, 0, 1, 0, 0];
+        const safeTransform = defaults.map((d, i) => (typeof t[i] === 'number' ? t[i] : d));
+        const width = isRecord(it) && typeof it.width === 'number' ? it.width : 60;
+        const height = isRecord(it) && typeof it.height === 'number' ? it.height : 10;
+        return {
+          str: String(it.str),
+          transform: safeTransform,
+          width,
+          height,
+        };
+      });
+
+    for (let i = 0; i < items.length; i++) {
+      const windowNorm = norm(
+        items
+          .slice(i, Math.min(i + 10, items.length))
+          .map((x) => x.str)
+          .join(' '),
+      );
+
+      if (!capturing) {
+        if (matchesSectionStart(windowNorm, sectionNumber)) {
+          capturing = true;
+          pushBound(pageNum, viewport, items[i]);
+        }
+        continue;
+      }
+
+      if (seenAnyCapture && matchesDifferentSectionHeading(windowNorm, sectionNumber)) {
+        break outer;
+      }
+
+      pushBound(pageNum, viewport, items[i]);
+    }
+  }
+
+  await destroyPdfDocument(pdf);
+
+  const results: PageHighlight[] = [];
+  for (const [page, bounds] of boundsByPage) {
+    if (bounds.length > 0) {
+      results.push({ page, bounds });
+    }
+  }
+  return results;
+};
+
 /**
  * Groups per-item bounds into per-line merged rectangles for cleaner highlights.
  */

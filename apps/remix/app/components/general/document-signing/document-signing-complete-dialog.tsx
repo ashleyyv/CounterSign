@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Trans, useLingui } from '@lingui/react/macro';
@@ -101,6 +101,12 @@ export const DocumentSigningCompleteDialog = ({
 
   const [showDialog, setShowDialog] = useState(false);
 
+  /** Radix Dialog uses useId(); SSR + client trees can diverge and break aria-controls / labels. Mount dialog only on client. */
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
   const [showTwoFactorForm, setShowTwoFactorForm] = useState(false);
   const [twoFactorValidationError, setTwoFactorValidationError] = useState<string | null>(null);
 
@@ -125,6 +131,17 @@ export const DocumentSigningCompleteDialog = ({
   });
 
   const isComplete = useMemo(() => !fieldsContainUnsignedRequiredField(fields), [fields]);
+
+  const completionButtonContent = useMemo(
+    () =>
+      match({ isComplete, role: recipient.role })
+        .with({ isComplete: false }, () => <Trans>Next Field</Trans>)
+        .with({ isComplete: true, role: RecipientRole.APPROVER }, () => <Trans>Approve</Trans>)
+        .with({ isComplete: true, role: RecipientRole.VIEWER }, () => <Trans>Mark as viewed</Trans>)
+        .with({ isComplete: true }, () => <Trans>Complete</Trans>)
+        .exhaustive(),
+    [isComplete, recipient.role],
+  );
 
   const completionRequires2FA = useMemo(
     () => derivedRecipientAccessAuth.includes('TWO_FACTOR_AUTH'),
@@ -201,6 +218,28 @@ export const DocumentSigningCompleteDialog = ({
     void form.handleSubmit(onFormSubmit)();
   };
 
+  const triggerButton = (
+    <Button
+      className="w-full"
+      type="button"
+      size={buttonSize}
+      onClick={() => {
+        void fieldsValidated();
+        if (isComplete) {
+          handleOpenChange(true);
+        }
+      }}
+      loading={isSubmitting}
+      disabled={disabled}
+    >
+      {completionButtonContent}
+    </Button>
+  );
+
+  if (!isClient) {
+    return triggerButton;
+  }
+
   return (
     <Dialog open={showDialog} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
@@ -212,14 +251,7 @@ export const DocumentSigningCompleteDialog = ({
           loading={isSubmitting}
           disabled={disabled}
         >
-          {match({ isComplete, role: recipient.role })
-            .with({ isComplete: false }, () => <Trans>Next Field</Trans>)
-            .with({ isComplete: true, role: RecipientRole.APPROVER }, () => <Trans>Approve</Trans>)
-            .with({ isComplete: true, role: RecipientRole.VIEWER }, () => (
-              <Trans>Mark as viewed</Trans>
-            ))
-            .with({ isComplete: true }, () => <Trans>Complete</Trans>)
-            .exhaustive()}
+          {completionButtonContent}
         </Button>
       </DialogTrigger>
 

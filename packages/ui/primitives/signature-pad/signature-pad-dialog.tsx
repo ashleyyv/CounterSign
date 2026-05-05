@@ -23,6 +23,8 @@ export type SignaturePadDialogProps = Omit<HTMLAttributes<HTMLCanvasElement>, 'o
   typedSignatureEnabled?: boolean;
   uploadSignatureEnabled?: boolean;
   drawSignatureEnabled?: boolean;
+  /** Must match `<Label htmlFor>` for the inline signature control (use unique values if multiple pads share a page). */
+  triggerButtonId?: string;
 };
 
 export const SignaturePadDialog = ({
@@ -36,6 +38,7 @@ export const SignaturePadDialog = ({
   uploadSignatureEnabled,
   drawSignatureEnabled,
   dialogConfirmText,
+  triggerButtonId = 'Signature',
 }: SignaturePadDialogProps) => {
   const { i18n } = useLingui();
 
@@ -59,6 +62,7 @@ export const SignaturePadDialog = ({
       )}
 
       <motion.button
+        id={triggerButtonId}
         data-testid="signature-pad-dialog-button"
         type="button"
         disabled={disabled}

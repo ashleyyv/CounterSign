@@ -114,5 +114,9 @@ declare namespace NodeJS {
     GOOGLE_VERTEX_PROJECT_ID?: string;
     GOOGLE_VERTEX_LOCATION?: string;
     GOOGLE_VERTEX_API_KEY?: string;
+
+    /** Anthropic (Claude) — Document Review / countersign panel */
+    ANTHROPIC_API_KEY?: string;
+    ANTHROPIC_MODEL?: string;
   }
 }

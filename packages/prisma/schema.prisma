@@ -1129,12 +1129,13 @@ model RateLimit {
 // Countersign models — additive layer, do not modify existing models above
 
 model DocumentReview {
-  id           String   @id @default(cuid())
-  documentHash String   @unique
-  summary      Json
+  id             String   @id @default(cuid())
+  documentHash   String   @unique
+  summary        Json
   flaggedClauses Json
-  documentType String?
-  createdAt    DateTime @default(now())
+  documentType   String?
+  rawReview      Json?
+  createdAt      DateTime @default(now())
 }
 
 model SignerPreferences {
