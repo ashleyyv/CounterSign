@@ -1,13 +1,87 @@
 import crypto from 'crypto';
 
+import type { FlaggedClauseV2 } from '@documenso/lib/types/countersign';
 import { getFileServerSide } from '@documenso/lib/universal/upload/get-file.server';
 import { env } from '@documenso/lib/utils/env';
 import { prisma } from '@documenso/prisma';
 
 import type { DocumentReviewResultV2 } from './ai-review';
-import { jsonToDocumentReviewV2, jsonToStringArray, runDocumentReviewV2 } from './ai-review';
+import {
+  jsonToDocumentReviewV2,
+  jsonToFlaggedClauses,
+  jsonToStringArray,
+  runDocumentReviewV2,
+} from './ai-review';
 
 type PdfParseResult = { text: string };
+
+/** Map legacy V1 DB row to V2 shape so we never burn Anthropic credits re-fetching the same document. */
+const legacyRowToV2 = (
+  cached: {
+    summary: unknown;
+    flaggedClauses: unknown;
+    documentType: string | null;
+  },
+  envelopeTitle: string,
+): DocumentReviewResultV2 | null => {
+  const legacy = jsonToFlaggedClauses(cached.flaggedClauses);
+  if (legacy.length === 0) {
+    return null;
+  }
+  const legacySeverity = (assessment: string): FlaggedClauseV2['severity'] => {
+    if (assessment === 'review') {
+      return 'severe';
+    }
+    if (assessment === 'unusual') {
+      return 'notable';
+    }
+    return 'worth-reading';
+  };
+  const flaggedClauses: FlaggedClauseV2[] = legacy.map((fc, i) => ({
+    id: `legacy-${i}-${fc.clause.slice(0, 32)}`,
+    severity: legacySeverity(fc.assessment),
+    title: fc.clause,
+    sectionReference: 'See document',
+    sectionNumber: 0,
+    clauseText: fc.text,
+    whatItSays: fc.note,
+    whatItMeansForYou: fc.note,
+  }));
+  const severe = flaggedClauses.filter((c) => c.severity === 'severe').length;
+  const total = flaggedClauses.length;
+  let level: DocumentReviewResultV2['riskVerdict']['level'];
+  let headline: string;
+  if (severe >= 3 || total >= 5) {
+    level = 'high';
+    headline =
+      'This document contains several clauses that warrant careful review before you sign.';
+  } else if (severe >= 1 || total >= 3) {
+    level = 'mixed';
+    headline = 'This document mixes typical terms with a few areas to read closely.';
+  } else {
+    level = 'standard';
+    headline = 'Most clauses look typical for this kind of document; confirm what applies to you.';
+  }
+  let summary = jsonToStringArray(cached.summary);
+  if (summary.length === 0) {
+    summary = [
+      'Review each flagged clause below in the context of your situation.',
+      'This summary was recovered from an earlier analysis stored in your database.',
+      'Run a fresh analysis only if the document was updated since then.',
+    ];
+  }
+  return {
+    document: {
+      counterparty: envelopeTitle.trim() || 'Counterparty',
+      documentType: cached.documentType?.trim() || 'Agreement',
+      sectionCount: 0,
+      estimatedReadMinutes: Math.min(120, Math.max(5, total * 2)),
+    },
+    riskVerdict: { level, headline },
+    summary,
+    flaggedClauses,
+  };
+};
 
 const parsePdf = async (buf: Buffer): Promise<PdfParseResult> => {
   const mod = await import('pdf-parse');
@@ -84,7 +158,7 @@ const analyzeEnvelopeInner = async ({
   const pdfBytes = await getFileServerSide(item.documentData);
   const documentHash = crypto.createHash('sha256').update(Buffer.from(pdfBytes)).digest('hex');
 
-  // Prefer V2 rawReview cache; bypass if absent or missing flaggedClauses
+  // Prefer V2 rawReview cache; legacy JSON columns as fallback (no Anthropic).
   const cached = await prisma.documentReview.findUnique({ where: { documentHash } });
   if (cached?.rawReview) {
     const v2 = jsonToDocumentReviewV2(cached.rawReview);
@@ -95,11 +169,25 @@ const analyzeEnvelopeInner = async ({
       );
       return { status: 'ok', data: v2 };
     }
+    const legacyV2 = legacyRowToV2(cached, envelope.title);
+    if (legacyV2) {
+      console.log(
+        '[countersign] analyzeEnvelope: rawReview invalid — using legacy flaggedClauses from DB (no API)',
+      );
+      return { status: 'ok', data: legacyV2 };
+    }
     console.log('[countersign] analyzeEnvelope: rawReview present but unusable — re-analyzing');
   } else if (cached) {
+    const legacyV2 = legacyRowToV2(cached, envelope.title);
+    if (legacyV2) {
+      console.log(
+        '[countersign] analyzeEnvelope: legacy DB row only — serving V2-shaped view (no API)',
+      );
+      return { status: 'ok', data: legacyV2 };
+    }
     console.log(
-      '[countersign] analyzeEnvelope: legacy cache (no rawReview) — re-analyzing with V2',
-      'legacy summary items:',
+      '[countersign] analyzeEnvelope: no usable legacy clauses — running V2 analysis',
+      'summary items:',
       jsonToStringArray(cached.summary).length,
     );
   }

@@ -127,7 +127,16 @@ export const IntelligencePanel = ({
     isError,
   } = trpc.countersign.analyzeEnvelope.useQuery(
     { envelopeId, recipientEmail },
-    { enabled: analyzed && !!envelopeId },
+    {
+      enabled: analyzed && !!envelopeId,
+      // Cached on server by document hash; never refetch automatically (avoids Anthropic spend on tab focus / remount).
+      staleTime: Number.POSITIVE_INFINITY,
+      gcTime: 1000 * 60 * 60 * 24 * 7,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
   );
 
   const review = outcome?.status === 'ok' ? outcome.data : undefined;
