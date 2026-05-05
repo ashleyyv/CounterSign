@@ -67,16 +67,17 @@ export const searchPdfText = async (
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
 
-    const items: RawTextItem[] = content.items
-      .filter((it): it is RawTextItem & { str: string } => 'str' in it && !!String(it.str).trim())
+    const items: RawTextItem[] = (content.items as unknown as Record<string, unknown>[])
+      .filter((it) => typeof it.str === 'string' && !!String(it.str).trim())
       .map((it) => {
-        const t = Array.isArray(it.transform)
-          ? it.transform.filter((n): n is number => typeof n === 'number')
+        const rawTransform = it.transform;
+        const t = Array.isArray(rawTransform)
+          ? (rawTransform as unknown[]).filter((n): n is number => typeof n === 'number')
           : [];
         const defaults = [1, 0, 0, 1, 0, 0];
         const safeTransform = defaults.map((d, i) => (typeof t[i] === 'number' ? t[i] : d));
-        const width = isRecord(it) && typeof it.width === 'number' ? it.width : 60;
-        const height = isRecord(it) && typeof it.height === 'number' ? it.height : 10;
+        const width = typeof it.width === 'number' ? it.width : 60;
+        const height = typeof it.height === 'number' ? it.height : 10;
         return {
           str: String(it.str),
           transform: safeTransform,
@@ -213,16 +214,17 @@ export const searchPdfBySectionNumber = async (
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
 
-    const items: RawTextItem[] = content.items
-      .filter((it): it is RawTextItem & { str: string } => 'str' in it && !!String(it.str).trim())
+    const items: RawTextItem[] = (content.items as unknown as Record<string, unknown>[])
+      .filter((it) => typeof it.str === 'string' && !!String(it.str).trim())
       .map((it) => {
-        const t = Array.isArray(it.transform)
-          ? it.transform.filter((n): n is number => typeof n === 'number')
+        const rawTransform = it.transform;
+        const t = Array.isArray(rawTransform)
+          ? (rawTransform as unknown[]).filter((n): n is number => typeof n === 'number')
           : [];
         const defaults = [1, 0, 0, 1, 0, 0];
         const safeTransform = defaults.map((d, i) => (typeof t[i] === 'number' ? t[i] : d));
-        const width = isRecord(it) && typeof it.width === 'number' ? it.width : 60;
-        const height = isRecord(it) && typeof it.height === 'number' ? it.height : 10;
+        const width = typeof it.width === 'number' ? it.width : 60;
+        const height = typeof it.height === 'number' ? it.height : 10;
         return {
           str: String(it.str),
           transform: safeTransform,
