@@ -1148,6 +1148,18 @@ model SignerPreferences {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model DocumentDiff {
+  id                  String   @id @default(cuid())
+  currentDocumentHash String
+  priorDocumentHash   String
+  rawDiff             Json
+  aiModelVersion      String
+  generatedAt         DateTime @default(now())
+
+  @@unique([currentDocumentHash, priorDocumentHash])
+  @@index([currentDocumentHash])
+}
+
 model ForwardEvent {
   id          String   @id @default(cuid())
   envelopeId  String

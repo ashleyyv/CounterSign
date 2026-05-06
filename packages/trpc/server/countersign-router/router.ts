@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getOrCreateDocumentReview } from '@documenso/lib/server-only/countersign/ai-review';
 import { analyzeEnvelope } from '@documenso/lib/server-only/countersign/analyze-envelope';
 import { forwardDocument } from '@documenso/lib/server-only/countersign/forward-document';
+import { generateEnvelopeDiff } from '@documenso/lib/server-only/countersign/generate-envelope-diff';
 import { prisma } from '@documenso/prisma';
 
 import { authenticatedProcedure, procedure, router } from '../trpc';
@@ -68,6 +69,12 @@ export const countersignRouter = router({
     .input(z.object({ envelopeId: z.string(), recipientEmail: z.string().email().optional() }))
     .query(async ({ input }) => {
       return analyzeEnvelope(input);
+    }),
+
+  getDiff: procedure
+    .input(z.object({ envelopeId: z.string(), recipientEmail: z.string().email() }))
+    .query(async ({ input }) => {
+      return generateEnvelopeDiff(input);
     }),
 
   getStalePendingDocuments: authenticatedProcedure.query(async ({ ctx }) => {

@@ -207,48 +207,9 @@ const analyzeEnvelopeInner = async ({
     // fall back to envelope title
   }
 
-  let priorDocumentText: string | undefined;
-  if (recipientEmail) {
-    const priorRecipient = await prisma.recipient.findFirst({
-      where: {
-        email: recipientEmail,
-        signingStatus: 'SIGNED',
-        envelope: {
-          userId: envelope.userId,
-          NOT: { id: envelopeId },
-        },
-      },
-      orderBy: { signedAt: 'desc' },
-      include: {
-        envelope: {
-          include: {
-            envelopeItems: {
-              include: { documentData: true },
-              take: 1,
-            },
-          },
-        },
-      },
-    });
-
-    if (priorRecipient?.envelope.envelopeItems[0]) {
-      try {
-        const priorBytes = await getFileServerSide(
-          priorRecipient.envelope.envelopeItems[0].documentData,
-        );
-        const priorParsed = await parsePdf(Buffer.from(priorBytes));
-        if (priorParsed.text?.trim()) {
-          priorDocumentText = priorParsed.text;
-        }
-      } catch {
-        // no prior text
-      }
-    }
-  }
-
   console.log('[countersign] analyzeEnvelope: running V2 analysis');
 
-  const review = await runDocumentReviewV2({ documentHash, documentText, priorDocumentText });
+  const review = await runDocumentReviewV2({ documentHash, documentText });
   if (!review) {
     return { status: 'unavailable', reason: 'analysis_failed' };
   }

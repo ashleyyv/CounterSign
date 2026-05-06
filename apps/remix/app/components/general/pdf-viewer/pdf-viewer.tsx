@@ -287,6 +287,9 @@ const VirtualizedPageList = ({
         return (
           <div
             key={virtualItem.key}
+            data-page={pageNumber}
+            data-page-top={virtualItem.start}
+            data-page-scale={scale}
             style={{
               position: 'absolute',
               top: 0,

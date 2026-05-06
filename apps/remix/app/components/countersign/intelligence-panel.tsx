@@ -16,6 +16,7 @@ import { useToast } from '@documenso/ui/primitives/use-toast';
 
 import { AIDisclaimer } from './ai-disclaimer';
 import { useOptionalClauseHighlight } from './clause-highlight-context';
+import { useOptionalDiff } from './diff-context';
 import { searchPdfBySectionNumber, searchPdfText } from './search-pdf-text';
 
 const EXPANDED_KEY = 'countersign:panel:expanded';
@@ -88,6 +89,7 @@ export const IntelligencePanel = ({
   pdfData,
 }: IntelligencePanelProps) => {
   const highlightCtx = useOptionalClauseHighlight();
+  const diffCtx = useOptionalDiff();
   const { toast } = useToast();
 
   const [expanded, setExpanded] = useState(() => {
@@ -120,6 +122,10 @@ export const IntelligencePanel = ({
 
   const [navigatingClause, setNavigatingClause] = useState<string | null>(null);
   const clearHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [diffBannerOpen, setDiffBannerOpen] = useState(false);
+  const [highlightedDiffId, setHighlightedDiffId] = useState<string | null>(null);
+  const clauseCardRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const toggleExpanded = () => {
     setExpanded((prev) => {
@@ -162,6 +168,21 @@ export const IntelligencePanel = ({
 
   const review = outcome?.status === 'ok' ? outcome.data : undefined;
   const unavailableReason = outcome?.status === 'unavailable' ? outcome.reason : undefined;
+
+  const { data: diffOutcome } = trpc.countersign.getDiff.useQuery(
+    { envelopeId, recipientEmail: recipientEmail ?? '' },
+    {
+      enabled: analyzed && !!envelopeId && !!recipientEmail,
+      staleTime: Number.POSITIVE_INFINITY,
+      gcTime: 1000 * 60 * 60 * 24 * 7,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+  );
+
+  const diffResult = diffOutcome?.status === 'ok' ? diffOutcome.data : undefined;
 
   useEffect(() => {
     if (!review || summaryInitializedRef.current) return;
@@ -238,6 +259,39 @@ export const IntelligencePanel = ({
     },
     [pdfData, highlightCtx, toast],
   );
+
+  const scrollToClauseCard = useCallback((clauseId: string) => {
+    const el = clauseCardRefs.current.get(clauseId);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    setHighlightedDiffId(clauseId);
+    setTimeout(() => setHighlightedDiffId(null), 1200);
+  }, []);
+
+  // When a margin chip is clicked it sets activeDiffChipId on the DiffContext.
+  // React here by scrolling the panel to the matching flagged-clause card.
+  useEffect(() => {
+    const activeId = diffCtx?.activeDiffChipId;
+    if (!activeId || !diffResult) {
+      return;
+    }
+
+    const change = diffResult.changes.find((c) => c.id === activeId);
+    if (!change?.matchingFlaggedClauseId) {
+      return;
+    }
+
+    const matchedClause = review?.flaggedClauses.find(
+      (c) => c.id === change.matchingFlaggedClauseId,
+    );
+
+    if (matchedClause) {
+      setSeveritySectionOpen((prev) => ({ ...prev, [matchedClause.severity]: true }));
+      setClausesSectionOpen(true);
+      // Small delay lets the collapsible open before we scroll into view
+      setTimeout(() => scrollToClauseCard(change.matchingFlaggedClauseId!), 80);
+    }
+  }, [diffCtx?.activeDiffChipId]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-violet-200 bg-card shadow-sm dark:border-violet-800/40">
@@ -383,6 +437,68 @@ export const IntelligencePanel = ({
                 </CollapsibleContent>
               </Collapsible>
 
+              {/* Diff banner — only when changes exist */}
+              {diffResult && diffResult.changes.length > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50/60 dark:border-amber-700/50 dark:bg-amber-950/20">
+                  <button
+                    type="button"
+                    onClick={() => setDiffBannerOpen((o) => !o)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300">
+                      <span>⚡</span>
+                      <span>
+                        {diffResult.changes.length} change
+                        {diffResult.changes.length !== 1 ? 's' : ''} since last{' '}
+                        {diffResult.priorDocument.documentType} from {review.document.counterparty}
+                      </span>
+                    </div>
+                    {diffBannerOpen ? (
+                      <ChevronUpIcon className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    ) : (
+                      <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    )}
+                  </button>
+
+                  {diffBannerOpen && (
+                    <div className="border-t border-amber-200 px-3 pb-2 dark:border-amber-700/50">
+                      {[...diffResult.changes]
+                        .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+                        .map((change) => (
+                          <button
+                            key={change.id}
+                            type="button"
+                            onClick={() => {
+                              if (change.matchingFlaggedClauseId) {
+                                const matchedClause = review.flaggedClauses.find(
+                                  (c) => c.id === change.matchingFlaggedClauseId,
+                                );
+                                if (matchedClause) {
+                                  setSeveritySectionOpen((prev) => ({
+                                    ...prev,
+                                    [matchedClause.severity]: true,
+                                  }));
+                                  setClausesSectionOpen(true);
+                                  setTimeout(
+                                    () => scrollToClauseCard(change.matchingFlaggedClauseId!),
+                                    50,
+                                  );
+                                }
+                              }
+                            }}
+                            className="flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs transition-colors hover:bg-amber-100/60 dark:hover:bg-amber-900/30"
+                          >
+                            <span className="font-mono text-amber-700 dark:text-amber-400">
+                              {change.chipLabel}
+                            </span>
+                            <span className="text-foreground">{change.title}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <Collapsible open={summaryOpen} onOpenChange={setSummaryOpen}>
                 <CollapsibleTrigger
                   type="button"
@@ -466,6 +582,10 @@ export const IntelligencePanel = ({
                                   return (
                                     <button
                                       key={clause.id}
+                                      ref={(el) => {
+                                        if (el) clauseCardRefs.current.set(clause.id, el);
+                                        else clauseCardRefs.current.delete(clause.id);
+                                      }}
                                       type="button"
                                       disabled={!canNavigate || isNavigating}
                                       onClick={async () => {
@@ -477,6 +597,8 @@ export const IntelligencePanel = ({
                                         canNavigate
                                           ? cn('cursor-pointer', cfg.hover)
                                           : 'cursor-default',
+                                        highlightedDiffId === clause.id &&
+                                          'ring-2 ring-amber-400 ring-offset-1 dark:ring-amber-500',
                                       )}
                                     >
                                       <p className="text-sm font-semibold leading-snug text-foreground">

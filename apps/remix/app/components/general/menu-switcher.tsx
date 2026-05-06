@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { msg } from '@lingui/core/macro';
 import { useLingui } from '@lingui/react';
@@ -29,6 +29,11 @@ export const MenuSwitcher = () => {
   const { user } = useSession();
 
   const [languageSwitcherOpen, setLanguageSwitcherOpen] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const isUserAdmin = isAdmin(user);
 
@@ -39,6 +44,26 @@ export const MenuSwitcher = () => {
 
     return user.name ? extractInitials(user.name) : user.email.slice(0, 1).toUpperCase();
   };
+
+  if (!isClient) {
+    return (
+      <Button
+        data-testid="menu-switcher"
+        variant="none"
+        disabled
+        className="relative flex h-12 flex-row items-center px-0 py-2 ring-0 focus:outline-none focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-transparent md:px-2"
+      >
+        <AvatarWithText
+          avatarSrc={formatAvatarUrl(user.avatarImageId)}
+          avatarFallback={formatAvatarFallback(user.name || user.email)}
+          primaryText={user.name}
+          secondaryText={_(msg`Personal Account`)}
+          rightSideComponent={<ChevronsUpDown className="ml-auto h-4 w-4 text-muted-foreground" />}
+          textSectionClassName="hidden lg:flex"
+        />
+      </Button>
+    );
+  }
 
   return (
     <DropdownMenu>
@@ -54,7 +79,7 @@ export const MenuSwitcher = () => {
             primaryText={user.name}
             secondaryText={_(msg`Personal Account`)}
             rightSideComponent={
-              <ChevronsUpDown className="text-muted-foreground ml-auto h-4 w-4" />
+              <ChevronsUpDown className="ml-auto h-4 w-4 text-muted-foreground" />
             }
             textSectionClassName="hidden lg:flex"
           />
@@ -66,7 +91,7 @@ export const MenuSwitcher = () => {
         align="end"
         forceMount
       >
-        <DropdownMenuItem className="text-muted-foreground px-4 py-2" asChild>
+        <DropdownMenuItem className="px-4 py-2 text-muted-foreground" asChild>
           <Link
             to="/settings/organisations?action=add-organisation"
             className="flex items-center justify-between"
@@ -78,34 +103,34 @@ export const MenuSwitcher = () => {
         <DropdownMenuSeparator />
 
         {isUserAdmin && (
-          <DropdownMenuItem className="text-muted-foreground px-4 py-2" asChild>
+          <DropdownMenuItem className="px-4 py-2 text-muted-foreground" asChild>
             <Link to="/admin">
               <Trans>Admin panel</Trans>
             </Link>
           </DropdownMenuItem>
         )}
 
-        <DropdownMenuItem className="text-muted-foreground px-4 py-2" asChild>
+        <DropdownMenuItem className="px-4 py-2 text-muted-foreground" asChild>
           <Link to="/inbox">
             <Trans>Personal Inbox</Trans>
           </Link>
         </DropdownMenuItem>
 
-        <DropdownMenuItem className="text-muted-foreground px-4 py-2" asChild>
+        <DropdownMenuItem className="px-4 py-2 text-muted-foreground" asChild>
           <Link to="/settings/profile">
             <Trans>User settings</Trans>
           </Link>
         </DropdownMenuItem>
 
         <DropdownMenuItem
-          className="text-muted-foreground px-4 py-2"
+          className="px-4 py-2 text-muted-foreground"
           onClick={() => setLanguageSwitcherOpen(true)}
         >
           <Trans>Language</Trans>
         </DropdownMenuItem>
 
         <DropdownMenuItem
-          className="text-destructive/90 hover:!text-destructive px-4 py-2"
+          className="px-4 py-2 text-destructive/90 hover:!text-destructive"
           onSelect={async () => authClient.signOut()}
         >
           <Trans>Sign Out</Trans>
