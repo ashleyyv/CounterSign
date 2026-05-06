@@ -169,14 +169,106 @@ export const generateEnvelopeDiff = async (
   }
 };
 
+// ─── Mock data for UI development (COUNTERSIGN_DIFF_MOCK=true) ───────────────
+
+const MOCK_DIFF_RESULT: DocumentDiffResult = {
+  priorDocument: {
+    id: 'mock-prior-doc',
+    signedDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    documentType: 'Mutual NDA',
+  },
+  changes: [
+    {
+      id: 'term-duration-increase',
+      changeType: 'increased',
+      severity: 'severe',
+      sectionReference: 'Section 4',
+      sectionNumber: 4,
+      clauseText: 'confidential information',
+      chipLabel: '↑ 5 yrs',
+      title: 'Confidentiality term doubled',
+      previousValue: '2 years',
+      currentValue: '5 years',
+      whatChanged: 'The confidentiality obligation period increased from 2 years to 5 years.',
+      whatItMeansForYou:
+        'You are bound by confidentiality for 5 years after the agreement ends instead of 2.',
+      matchingFlaggedClauseId: null,
+    },
+    {
+      id: 'liquidated-damages-added',
+      changeType: 'added',
+      severity: 'severe',
+      sectionReference: 'Section 9',
+      sectionNumber: 9,
+      clauseText: 'intellectual property',
+      chipLabel: '✦ NEW',
+      title: 'Liquidated damages clause added',
+      previousValue: null,
+      currentValue: '$50,000 per breach',
+      whatChanged:
+        'A liquidated damages clause of $50,000 per breach was not present in the prior version.',
+      whatItMeansForYou:
+        'You could owe $50,000 per breach of this agreement — this clause did not exist before.',
+      matchingFlaggedClauseId: null,
+    },
+    {
+      id: 'jurisdiction-swap',
+      changeType: 'swapped',
+      severity: 'notable',
+      sectionReference: 'Section 12',
+      sectionNumber: 12,
+      clauseText: 'governing law',
+      chipLabel: '⇄ BVI',
+      title: 'Jurisdiction changed to BVI',
+      previousValue: 'Delaware, USA',
+      currentValue: 'British Virgin Islands',
+      whatChanged:
+        'The governing jurisdiction changed from Delaware to the British Virgin Islands.',
+      whatItMeansForYou:
+        'Any disputes would be resolved under BVI law, which may be less accessible to you.',
+      matchingFlaggedClauseId: null,
+    },
+    {
+      id: 'notice-period-decrease',
+      changeType: 'decreased',
+      severity: 'notable',
+      sectionReference: 'Section 7',
+      sectionNumber: 7,
+      clauseText: 'termination',
+      chipLabel: '↓ 15 days',
+      title: 'Termination notice reduced',
+      previousValue: '60 days',
+      currentValue: '15 days',
+      whatChanged: 'Required notice period for termination dropped from 60 days to 15 days.',
+      whatItMeansForYou:
+        'The other party can end the agreement with only 15 days notice instead of 60.',
+      matchingFlaggedClauseId: null,
+    },
+    {
+      id: 'non-solicit-removed',
+      changeType: 'removed',
+      severity: 'worth-reading',
+      sectionReference: 'Section 6',
+      sectionNumber: 6,
+      clauseText: 'non-solicitation',
+      chipLabel: '✕ REMOVED',
+      title: 'Non-solicitation clause removed',
+      previousValue: 'Mutual 12-month non-solicitation',
+      currentValue: null,
+      whatChanged: 'The mutual non-solicitation clause present in the prior version was removed.',
+      whatItMeansForYou: "Neither party is restricted from soliciting the other's employees.",
+      matchingFlaggedClauseId: null,
+    },
+  ],
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const generateEnvelopeDiffInner = async ({
   envelopeId,
   recipientEmail,
 }: GenerateEnvelopeDiffOptions): Promise<GenerateEnvelopeDiffResult> => {
-  const apiKey = env('ANTHROPIC_API_KEY')?.trim();
-  if (!apiKey) {
-    return { status: 'unavailable' };
-  }
+  const isMock = env('COUNTERSIGN_DIFF_MOCK')?.trim() === 'true';
 
   const envelope = await prisma.envelope.findUnique({
     where: { id: envelopeId },
@@ -229,6 +321,14 @@ const generateEnvelopeDiffInner = async ({
 
   if (currentDocumentHash === priorDocumentHash) {
     return { status: 'same_document' };
+  }
+
+  // Return mock data immediately when flag is set — skips AI call and DB cache.
+  if (isMock) {
+    console.log(
+      '[countersign] generateEnvelopeDiff: returning mock diff (COUNTERSIGN_DIFF_MOCK=true)',
+    );
+    return { status: 'ok', data: MOCK_DIFF_RESULT };
   }
 
   // Cache check
@@ -289,6 +389,11 @@ const generateEnvelopeDiffInner = async ({
   const priorSignedDate = priorRecipient.signedAt
     ? priorRecipient.signedAt.toISOString().slice(0, 10)
     : 'unknown';
+
+  const apiKey = env('ANTHROPIC_API_KEY')?.trim();
+  if (!apiKey) {
+    return { status: 'unavailable' };
+  }
 
   const model = env('ANTHROPIC_MODEL')?.trim() || 'claude-sonnet-4-6';
   const client = new Anthropic({ apiKey });
