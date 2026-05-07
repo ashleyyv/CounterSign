@@ -9,7 +9,7 @@
 - `npm run test:dev -w @documenso/app-tests` - Run single E2E test in dev mode
 - `npm run test-ui:dev -w @documenso/app-tests` - Run E2E tests with UI
 - `npm run format` - Format code with Prettier
-- `npm run dev` - Start development server for Remix app
+- `npm run dev` - Bring up `docker/development` Postgres (`database` service) if needed, then start the Remix dev server (set `DOCUMENSO_SKIP_DEV_DOCKER=true` to skip Docker when using your own DB)
 
 **Important:** Do not run `npm run build` to verify changes unless explicitly asked. Builds take a long time (~2 minutes). Use `npx tsc --noEmit` for type checking specific packages if needed.
 

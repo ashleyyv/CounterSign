@@ -16,6 +16,7 @@ import { useToast } from '@documenso/ui/primitives/use-toast';
 
 import { AIDisclaimer } from './ai-disclaimer';
 import { useOptionalClauseHighlight } from './clause-highlight-context';
+import { shouldShowCountersignDiff } from './countersign-diff-eligibility';
 import { useOptionalDiff } from './diff-context';
 import { searchPdfBySectionNumber, searchPdfText } from './search-pdf-text';
 
@@ -81,16 +82,21 @@ export type IntelligencePanelProps = {
   envelopeId: string;
   recipientEmail?: string;
   pdfData?: Uint8Array | string;
+  /** Current envelope file title (tabs). Omit to disable Counterparty Diff UI entirely. */
+  countersignDiffAttachmentTitle?: string | null;
 };
 
 export const IntelligencePanel = ({
   envelopeId,
   recipientEmail,
   pdfData,
+  countersignDiffAttachmentTitle,
 }: IntelligencePanelProps) => {
   const highlightCtx = useOptionalClauseHighlight();
   const diffCtx = useOptionalDiff();
   const { toast } = useToast();
+
+  const countersignDiffEnabled = shouldShowCountersignDiff(countersignDiffAttachmentTitle);
 
   const [expanded, setExpanded] = useState(() => {
     try {
@@ -172,7 +178,7 @@ export const IntelligencePanel = ({
   const { data: diffOutcome } = trpc.countersign.getDiff.useQuery(
     { envelopeId, recipientEmail: recipientEmail ?? '' },
     {
-      enabled: analyzed && !!envelopeId && !!recipientEmail,
+      enabled: analyzed && !!envelopeId && !!recipientEmail && countersignDiffEnabled,
       staleTime: Number.POSITIVE_INFINITY,
       gcTime: 1000 * 60 * 60 * 24 * 7,
       refetchOnWindowFocus: false,
@@ -272,7 +278,7 @@ export const IntelligencePanel = ({
   // React here by scrolling the panel to the matching flagged-clause card.
   useEffect(() => {
     const activeId = diffCtx?.activeDiffChipId;
-    if (!activeId || !diffResult) {
+    if (!countersignDiffEnabled || !activeId || !diffResult) {
       return;
     }
 
@@ -291,7 +297,7 @@ export const IntelligencePanel = ({
       // Small delay lets the collapsible open before we scroll into view
       setTimeout(() => scrollToClauseCard(change.matchingFlaggedClauseId!), 80);
     }
-  }, [diffCtx?.activeDiffChipId]);
+  }, [countersignDiffEnabled, diffCtx?.activeDiffChipId]);
 
   return (
     <div className="overflow-hidden rounded-lg border border-violet-200 bg-card shadow-sm dark:border-violet-800/40">
@@ -437,8 +443,8 @@ export const IntelligencePanel = ({
                 </CollapsibleContent>
               </Collapsible>
 
-              {/* Diff banner — only when changes exist */}
-              {diffResult && diffResult.changes.length > 0 && (
+              {/* Diff banner — gated mock attachment + changes exist */}
+              {countersignDiffEnabled && diffResult && diffResult.changes.length > 0 && (
                 <div className="rounded-md border border-amber-200 bg-amber-50/60 dark:border-amber-700/50 dark:bg-amber-950/20">
                   <button
                     type="button"

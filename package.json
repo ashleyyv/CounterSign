@@ -9,8 +9,9 @@
   "scripts": {
     "postinstall": "patch-package",
     "build": "turbo run build",
-    "dev": "npm run translate:compile && turbo run dev --filter=@documenso/remix",
-    "dev:remix": "npm run translate:compile && turbo run dev --filter=@documenso/remix",
+    "dev:db-up": "node scripts/dev-db-up.cjs",
+    "dev": "npm run dev:db-up && npm run translate:compile && turbo run dev --filter=@documenso/remix",
+    "dev:remix": "npm run dev:db-up && npm run translate:compile && turbo run dev --filter=@documenso/remix",
     "dev:docs": "turbo run dev --filter=@documenso/docs",
     "dev:openpage-api": "turbo run dev --filter=@documenso/openpage-api",
     "start": "turbo run start --filter=@documenso/remix --filter=@documenso/docs --filter=@documenso/openpage-api",

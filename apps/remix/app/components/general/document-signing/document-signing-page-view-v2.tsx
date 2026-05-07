@@ -23,6 +23,7 @@ import { Button } from '@documenso/ui/primitives/button';
 import { Separator } from '@documenso/ui/primitives/separator';
 
 import { ClauseHighlightProvider } from '~/components/countersign/clause-highlight-context';
+import { shouldShowCountersignDiff } from '~/components/countersign/countersign-diff-eligibility';
 import { DiffProvider, useDiff } from '~/components/countersign/diff-context';
 import { DiffMarginChips } from '~/components/countersign/diff-margin-chips';
 import { IntelligencePanel } from '~/components/countersign/intelligence-panel';
@@ -83,12 +84,13 @@ const DocumentSigningPageViewV2Inner = () => {
   const { t } = useLingui();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
-  const { setDiffResult, diffResult } = useDiff();
+  const countersignDiffEnabled = shouldShowCountersignDiff(currentEnvelopeItem?.title);
+  const { setDiffResult, diffResult, setActiveDiffChipId } = useDiff();
 
   const { data: diffOutcome } = trpc.countersign.getDiff.useQuery(
     { envelopeId: envelope.id, recipientEmail: recipient.email },
     {
-      enabled: !!envelope.id && !!recipient.email,
+      enabled: !!envelope.id && !!recipient.email && countersignDiffEnabled,
       staleTime: Number.POSITIVE_INFINITY,
       refetchOnWindowFocus: false,
       refetchOnMount: false,
@@ -98,10 +100,21 @@ const DocumentSigningPageViewV2Inner = () => {
   );
 
   useEffect(() => {
+    if (!countersignDiffEnabled) {
+      setDiffResult(null);
+      setActiveDiffChipId(null);
+      return;
+    }
+
     if (diffOutcome?.status === 'ok') {
       setDiffResult(diffOutcome.data);
+      return;
     }
-  }, [diffOutcome, setDiffResult]);
+
+    if (diffOutcome !== undefined) {
+      setDiffResult(null);
+    }
+  }, [countersignDiffEnabled, diffOutcome, setActiveDiffChipId, setDiffResult]);
 
   /**
    * The total remaining fields remaining for the current recipient or selected assistant recipient.
@@ -205,6 +218,7 @@ const DocumentSigningPageViewV2Inner = () => {
                 <IntelligencePanel
                   envelopeId={envelope.id}
                   recipientEmail={recipient.email}
+                  countersignDiffAttachmentTitle={currentEnvelopeItem?.title}
                   pdfData={currentEnvelopeItem?.data}
                 />
               </div>
@@ -345,9 +359,15 @@ const DocumentSigningPageViewV2Inner = () => {
               )}
 
               {/* Diff margin chips — overlaid on document viewer */}
-              {currentEnvelopeItem?.data && diffResult && diffResult.changes.length > 0 && (
-                <DiffMarginChips pdfData={currentEnvelopeItem.data} changes={diffResult.changes} />
-              )}
+              {countersignDiffEnabled &&
+                currentEnvelopeItem?.data &&
+                diffResult &&
+                diffResult.changes.length > 0 && (
+                  <DiffMarginChips
+                    pdfData={currentEnvelopeItem.data}
+                    changes={diffResult.changes}
+                  />
+                )}
 
               {/* Mobile widget - Additional padding to allow users to scroll */}
               <div className="block pb-28 lg:hidden">

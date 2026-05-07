@@ -4,6 +4,7 @@ import { Trans } from '@lingui/react/macro';
 import {
   BracesIcon,
   CreditCardIcon,
+  Forward,
   Globe2Icon,
   Lock,
   MailIcon,
@@ -129,6 +130,19 @@ export const SettingsMobileNav = ({ className, ...props }: SettingsMobileNavProp
             >
               <WebhookIcon className="mr-2 h-5 w-5" />
               <Trans>Webhooks</Trans>
+            </Button>
+          </Link>
+
+          <Link to="/settings/forwarding">
+            <Button
+              variant="ghost"
+              className={cn(
+                'w-full justify-start',
+                pathname?.startsWith('/settings/forwarding') && 'bg-secondary',
+              )}
+            >
+              <Forward className="mr-2 h-5 w-5" />
+              <Trans>Forwarding</Trans>
             </Button>
           </Link>
         </>
